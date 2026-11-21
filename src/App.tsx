@@ -54,12 +54,18 @@ export default function App() {
 
   // Inicialização e assinatura dos eventos de varredura.
   useEffect(() => {
-    let unsub: Array<() => void> = [];
+    // The subscription is asynchronous: if the effect is torn down before it
+    // finishes (React StrictMode mounts twice), the listener has to be removed
+    // as soon as it is registered, otherwise each event is handled twice.
+    let disposed = false;
+    const unsub: Array<() => void> = [];
+    const keep = (u: () => void) => (disposed ? u() : unsub.push(u));
     getApi().then(async (a) => {
+      if (disposed) return;
       setApi(a);
       refreshDrives(a);
-      unsub.push(await a.onProgress(setProgress));
-      unsub.push(
+      keep(await a.onProgress(setProgress));
+      keep(
         await a.onFinished(async (f) => {
           setScanTarget(null);
           setProgress(null);
@@ -83,7 +89,10 @@ export default function App() {
         }),
       );
     });
-    return () => unsub.forEach((u) => u());
+    return () => {
+      disposed = true;
+      unsub.forEach((u) => u());
+    };
   }, [notify, refreshDrives]);
 
   // Carrega o nó atual (gráfico + lista + breadcrumb).
