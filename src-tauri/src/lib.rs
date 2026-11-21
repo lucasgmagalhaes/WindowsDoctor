@@ -229,6 +229,8 @@ fn find_path(state: State<'_, Arc<AppState>>, path: String) -> CmdResult<Option<
 
 #[tauri::command]
 fn reveal_path(path: String, select: bool) -> CmdResult<()> {
+    // Abrir um arquivo no Explorer o executaria; arquivos são sempre só selecionados.
+    let select = select || !Path::new(&path).is_dir();
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
