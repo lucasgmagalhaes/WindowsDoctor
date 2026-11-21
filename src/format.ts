@@ -8,11 +8,13 @@ export function formatBytes(n: number): string {
   if (n < 1024) return `${nf0.format(n)} B`;
   let i = 0;
   let v = n;
-  while (v >= 1024 && i < UNITS.length - 1) {
+  // Compare the *rounded* value: 1023.96 KB would otherwise show as "1.024 KB".
+  const rounded = (x: number) => (x >= 99.95 ? Math.round(x) : Math.round(x * 10) / 10);
+  while (rounded(v) >= 1024 && i < UNITS.length - 1) {
     v /= 1024;
     i++;
   }
-  return `${v >= 100 ? nf0.format(v) : nf1.format(v)} ${UNITS[i]}`;
+  return `${rounded(v) >= 100 ? nf0.format(v) : nf1.format(v)} ${UNITS[i]}`;
 }
 
 export function formatCount(n: number): string {
