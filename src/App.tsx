@@ -140,11 +140,13 @@ export default function App() {
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (e.key === "Backspace" && !(e.target instanceof HTMLInputElement) && !toDelete) goUp();
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName));
+      if (e.key === "Backspace" && !typing && !toDelete && !scanTarget) goUp();
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [goUp, toDelete]);
+  }, [goUp, toDelete, scanTarget]);
 
   const startScan = async (path: string) => {
     if (!api) return;
