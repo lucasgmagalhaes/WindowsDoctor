@@ -253,7 +253,11 @@ fn reveal_path(path: String, select: bool) -> CmdResult<()> {
     Ok(())
 }
 
-/// Recusa apagar raízes de partição e a pasta do Windows.
+/// Subpastas do Windows cujo *conteúdo* pode ser apagado com segurança.
+const WINDOWS_CLEANABLE: [&str; 2] = ["temp", r"softwaredistribution\download"];
+
+/// Recusa apagar raízes de partição e a pasta do Windows (exceto o conteúdo
+/// das pastas em [`WINDOWS_CLEANABLE`]).
 fn check_deletable(path: &Path) -> CmdResult<()> {
     if path.parent().is_none() {
         return Err("não é permitido apagar a raiz de uma partição".into());
@@ -263,7 +267,10 @@ fn check_deletable(path: &Path) -> CmdResult<()> {
         let sys = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
         let lower = |p: &Path| p.to_string_lossy().to_lowercase();
         let (p, s) = (lower(path), lower(Path::new(&sys)));
-        if p == s || p.starts_with(&format!("{s}\\")) {
+        let cleanable = WINDOWS_CLEANABLE
+            .iter()
+            .any(|sub| p.starts_with(&format!("{s}\\{sub}\\")));
+        if !cleanable && (p == s || p.starts_with(&format!("{s}\\"))) {
             return Err(
                 "itens dentro da pasta do Windows não podem ser apagados por aqui \
                  (use a Limpeza de Disco / DISM)"
