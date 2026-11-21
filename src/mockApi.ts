@@ -297,8 +297,10 @@ export function createMockApi(): Api {
     async reveal(path) {
       console.info("[mock] abrir no Explorer:", path);
     },
-    async deleteNode(id) {
+    async deleteNode(target) {
       const t = need();
+      const id = "id" in target ? target.id : t.nodes.find((x) => !x.removed && x.kind === "file" && t.pathOf(x.id) === target.path)?.id;
+      if (id == null) throw new Error("item não encontrado na varredura atual");
       if (id === 0) throw new Error("não é possível apagar a pasta raiz da varredura");
       const p = t.pathOf(id).toLowerCase();
       if (p.startsWith("c:\\windows\\") || p === "c:\\windows") {

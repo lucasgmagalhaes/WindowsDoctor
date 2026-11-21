@@ -178,17 +178,12 @@ export default function App() {
 
   const reveal = (path: string, select: boolean) => api?.reveal(path, select).catch((e) => notify(String(e), "err"));
 
-  const askDeleteFile = async (f: FileInfo) => {
-    if (!api) return;
-    const id = await api.findPath(f.path);
-    if (id == null) return notify("Arquivo não encontrado na árvore atual.", "err");
-    setToDelete({ id, path: f.path, size: f.size, isDir: false });
-  };
+  const askDeleteFile = (f: FileInfo) => setToDelete({ id: null, path: f.path, size: f.size, isDir: false });
 
   const confirmDelete = async (permanent: boolean) => {
     if (!api || !toDelete) return;
     try {
-      const r = await api.deleteNode(toDelete.id, permanent);
+      const r = await api.deleteNode(toDelete.id != null ? { id: toDelete.id } : { path: toDelete.path }, permanent);
       setStats(r.stats);
       notify(
         permanent

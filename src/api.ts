@@ -86,7 +86,8 @@ export interface Api {
   getTopFiles(limit: number): Promise<FileInfo[]>;
   findPath(path: string): Promise<number | null>;
   reveal(path: string, select: boolean): Promise<void>;
-  deleteNode(id: number, permanent: boolean): Promise<DeleteResult>;
+  /** Deletes by node `id` or, for grouped files from the top list, by `path`. */
+  deleteNode(target: { id: number } | { path: string }, permanent: boolean): Promise<DeleteResult>;
   pickFolder(): Promise<string | null>;
   onProgress(cb: (p: Progress) => void): Promise<() => void>;
   onFinished(cb: (f: ScanFinished) => void): Promise<() => void>;
@@ -111,7 +112,12 @@ async function tauriApi(): Promise<Api> {
     getTopFiles: (limit) => invoke("get_top_files", { limit }),
     findPath: (path) => invoke("find_path", { path }),
     reveal: (path, select) => invoke("reveal_path", { path, select }),
-    deleteNode: (id, permanent) => invoke("delete_node", { id, permanent }),
+    deleteNode: (target, permanent) =>
+      invoke("delete_node", {
+        id: "id" in target ? target.id : null,
+        path: "path" in target ? target.path : null,
+        permanent,
+      }),
     pickFolder: async () => {
       const r = await open({ directory: true, multiple: false });
       return typeof r === "string" ? r : null;

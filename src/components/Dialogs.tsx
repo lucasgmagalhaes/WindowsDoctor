@@ -39,7 +39,8 @@ export function ScanOverlay({ progress, target, onCancel }: { progress: Progress
 }
 
 export interface DeleteTarget {
-  id: number;
+  /** null for files from the top list that may have no node of their own. */
+  id: number | null;
   path: string;
   size: number;
   isDir: boolean;
