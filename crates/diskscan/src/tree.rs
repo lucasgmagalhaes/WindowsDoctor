@@ -362,6 +362,41 @@ impl Tree {
         Some(size)
     }
 
+    /// Tamanho registrado de um arquivo da lista de maiores arquivos.
+    pub fn top_file_size(&self, path: &Path) -> Option<u64> {
+        self.top_files
+            .iter()
+            .find(|f| Path::new(&f.path) == path)
+            .map(|f| f.size)
+    }
+
+    /// Remove um item pelo caminho (após ter sido apagado do disco). Funciona
+    /// também para arquivos pequenos que não têm nó próprio porque foram
+    /// agrupados no nó `Others` da pasta: nesse caso o tamanho vem da lista de
+    /// maiores arquivos e é descontado do agrupamento.
+    pub fn remove_path(&mut self, path: &Path) -> Option<u64> {
+        if let Some(id) = self.find(path) {
+            return self.remove(id);
+        }
+        let size = self.top_file_size(path)?;
+        let parent = self.find(path.parent()?)?;
+        let others = *self.nodes[parent as usize]
+            .children
+            .iter()
+            .find(|&&c| self.nodes[c as usize].kind == NodeKind::Others)?;
+        let o = &mut self.nodes[others as usize];
+        let size = size.min(o.size);
+        o.size -= size;
+        o.file_count = o.file_count.saturating_sub(1);
+        if o.file_count == 0 {
+            o.removed = true;
+            self.nodes[parent as usize].children.retain(|&c| c != others);
+        }
+        self.propagate(parent, -(size as i128), -1, 0);
+        self.top_files.retain(|f| Path::new(&f.path) != path);
+        Some(size)
+    }
+
     /// Substitui o diretório `id` pelo resultado de uma nova varredura dele
     /// (`sub`). Usado para "re-varrer" só uma pasta.
     pub fn replace_subtree(&mut self, id: u32, sub: Tree) -> Option<()> {
