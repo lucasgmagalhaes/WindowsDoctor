@@ -272,6 +272,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, progress: &Progress) -> std::io::Re
         root.to_path_buf(),
         raw,
         top,
+        opts.top_files,
         snap.errors,
         progress.is_cancelled(),
         started.elapsed().as_millis() as u64,

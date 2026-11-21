@@ -93,11 +93,11 @@ impl Tree {
         root_path: PathBuf,
         raw: RawDir,
         top_files: Vec<FileInfo>,
+        top_limit: usize,
         errors: u64,
         cancelled: bool,
         elapsed_ms: u64,
     ) -> Self {
-        let top_limit = top_files.len().max(1);
         let mut tree = Tree {
             root_path,
             nodes: Vec::new(),
