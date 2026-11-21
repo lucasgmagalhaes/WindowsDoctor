@@ -67,6 +67,9 @@ struct ScanFinished {
     stats: Option<ScanStats>,
     /// Preenchido quando foi uma re-varredura de uma subpasta.
     rescanned_path: Option<String>,
+    /// A varredura foi cancelada. Numa re-varredura cancelada os dados
+    /// anteriores da pasta são mantidos.
+    cancelled: bool,
 }
 
 /// Inicia uma varredura em segundo plano. Emite `scan-progress` periodicamente
@@ -131,15 +134,20 @@ fn start_scan(
                     error: Some(format!("{}: {e}", target.display())),
                     stats: None,
                     rescanned_path: None,
+                    cancelled: false,
                 },
                 Ok(sub) => {
+                    let cancelled = progress.is_cancelled();
                     let mut guard = state.tree.lock().unwrap();
                     let mut rescanned = None;
                     match (node_id, guard.as_mut()) {
                         (Some(_), Some(tree)) => {
                             // O id pode ter mudado durante a varredura; procura de novo pelo caminho.
                             if let Some(id) = tree.find(&target) {
-                                tree.replace_subtree(id, sub);
+                                // Cancelada: um resultado parcial deixaria a pasta menor do que é.
+                                if !cancelled {
+                                    tree.replace_subtree(id, sub);
+                                }
                                 rescanned = Some(target.to_string_lossy().into_owned());
                             }
                         }
@@ -150,6 +158,7 @@ fn start_scan(
                         error: None,
                         stats: guard.as_ref().map(|t| t.stats()),
                         rescanned_path: rescanned,
+                        cancelled,
                     }
                 }
             };
