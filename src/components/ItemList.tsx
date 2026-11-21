@@ -1,5 +1,5 @@
 import type { NodeView } from "../api";
-import { PALETTE, NEUTRAL } from "../chartUtils";
+import { PALETTE, NEUTRAL, isRepeatClick } from "../chartUtils";
 import { formatBytes, formatCount, formatPercent, joinPath, nodeLabel } from "../format";
 import { hintFor, isProtected } from "../hints";
 
@@ -29,8 +29,7 @@ export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, o
           <li
             key={it.id ?? `rest-${i}`}
             className={`item ${canOpen ? "clickable" : ""} ${highlightId != null && it.id === highlightId ? "hl" : ""}`}
-            onDoubleClick={() => canOpen && onOpen(it.id!)}
-            onClick={() => canOpen && onOpen(it.id!)}
+            onClick={(e) => canOpen && !isRepeatClick(e) && onOpen(it.id!)}
           >
             <div className="item-main">
               <span className="item-icon" aria-hidden>

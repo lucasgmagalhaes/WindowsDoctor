@@ -1,7 +1,7 @@
 import { useMemo, useRef } from "react";
 import { hierarchy, treemap, treemapSquarify, type HierarchyRectangularNode } from "d3-hierarchy";
 import type { NodeView } from "../api";
-import { colorOf, navTarget, opacityOf, setValues, truncate, useSize } from "../chartUtils";
+import { colorOf, isRepeatClick, navTarget, opacityOf, setValues, truncate, useSize } from "../chartUtils";
 import { formatBytes, nodeLabel } from "../format";
 
 type RNode = HierarchyRectangularNode<NodeView>;
@@ -56,7 +56,7 @@ export function Treemap({ data, depth, hovered, onHover, onNavigate }: Props) {
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (target != null) onNavigate(target);
+                  if (target != null && !isRepeatClick(e)) onNavigate(target);
                 }}
               >
                 <rect

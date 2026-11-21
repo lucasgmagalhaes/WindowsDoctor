@@ -27,6 +27,13 @@ export function truncate(v: NodeView, depth: number): NodeView {
   return { ...v, children: depth > 0 ? v.children.map((c) => truncate(c, depth - 1)) : [] };
 }
 
+/**
+ * Only the first click of a sequence counts. On a double-click, the second
+ * click would land on the new chart/list already under the cursor and go
+ * down one more level.
+ */
+export const isRepeatClick = (e: { detail: number }) => e.detail > 1;
+
 /** Atribui `value` = tamanho de cada nó (os tamanhos já vêm agregados do backend). */
 export function setValues(h: HierarchyNode<NodeView>) {
   h.each((n) => {

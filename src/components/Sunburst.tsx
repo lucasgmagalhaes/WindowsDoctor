@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { hierarchy, partition, type HierarchyRectangularNode } from "d3-hierarchy";
 import { arc } from "d3-shape";
 import type { NodeView } from "../api";
-import { colorOf, navTarget, opacityOf, setValues, truncate, useSize } from "../chartUtils";
+import { colorOf, isRepeatClick, navTarget, opacityOf, setValues, truncate, useSize } from "../chartUtils";
 import { formatBytes, formatPercent, nodeLabel } from "../format";
 
 type RNode = HierarchyRectangularNode<NodeView>;
@@ -62,14 +62,14 @@ export function Sunburst({ data, depth, hovered, onHover, onNavigate, onUp, canG
                   fillOpacity={dim ? opacityOf(d) * 0.35 : opacityOf(d)}
                   className={target != null ? "seg clickable" : "seg"}
                   onMouseEnter={() => onHover(d)}
-                  onClick={() => target != null && onNavigate(target)}
+                  onClick={(e) => target != null && !isRepeatClick(e) && onNavigate(target)}
                 />
               );
             })}
             <circle
               r={Math.max(0, ring - 2)}
               className={canGoUp ? "center clickable" : "center"}
-              onClick={canGoUp ? onUp : undefined}
+              onClick={canGoUp ? (e) => !isRepeatClick(e) && onUp() : undefined}
               onMouseEnter={() => onHover(null)}
             />
             <foreignObject x={-ring * 0.8} y={-ring * 0.55} width={ring * 1.6} height={ring * 1.1} pointerEvents="none">
