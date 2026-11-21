@@ -2,6 +2,7 @@
 // Reproduz a mesma semântica do crate `diskscan` (agregação Rest/Others,
 // remoção com propagação de tamanhos etc.) sobre uma partição fictícia.
 
+import { isProtected } from "./hints";
 import type { Api, Crumb, FileInfo, NodeKind, NodeView, Progress, ScanFinished, Stats } from "./api";
 
 interface MNode {
@@ -302,8 +303,7 @@ export function createMockApi(): Api {
       const id = "id" in target ? target.id : t.nodes.find((x) => !x.removed && x.kind === "file" && t.pathOf(x.id) === target.path)?.id;
       if (id == null) throw new Error("item não encontrado na varredura atual");
       if (id === 0) throw new Error("não é possível apagar a pasta raiz da varredura");
-      const p = t.pathOf(id).toLowerCase();
-      if (p.startsWith("c:\\windows\\") || p === "c:\\windows") {
+      if (isProtected(t.pathOf(id))) {
         throw new Error("itens dentro da pasta do Windows não podem ser apagados por aqui (use a Limpeza de Disco / DISM)");
       }
       await delay(300);

@@ -63,8 +63,16 @@ export function hintFor(path: string): Hint | null {
   return null;
 }
 
-/** Itens dentro do Windows não podem ser apagados pelo app (o backend recusa). */
+// Folders inside Windows whose *contents* can be deleted (mirrors
+// WINDOWS_CLEANABLE in the backend).
+const WINDOWS_CLEANABLE = /^[a-z]:\\windows\\(temp|softwaredistribution\\download)\\./;
+
+/**
+ * Items the app refuses to delete (the backend refuses them too): drive
+ * roots and the Windows folder, except the contents of WINDOWS_CLEANABLE.
+ */
 export function isProtected(path: string): boolean {
   const p = path.replace(/\//g, "\\").toLowerCase();
+  if (WINDOWS_CLEANABLE.test(p)) return false;
   return /^[a-z]:\\windows(\\|$)/.test(p) || /^[a-z]:\\?$/.test(p);
 }
