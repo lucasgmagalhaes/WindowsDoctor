@@ -30,6 +30,14 @@ export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, o
             key={it.id ?? `rest-${i}`}
             className={`item ${canOpen ? "clickable" : ""} ${highlightId != null && it.id === highlightId ? "hl" : ""}`}
             onClick={(e) => canOpen && !isRepeatClick(e) && onOpen(it.id!)}
+            tabIndex={canOpen ? 0 : undefined}
+            aria-label={canOpen ? `Abrir ${it.name}` : undefined}
+            onKeyDown={(e) => {
+              if (canOpen && e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                e.preventDefault();
+                onOpen(it.id!);
+              }
+            }}
           >
             <div className="item-main">
               <span className="item-icon" aria-hidden>
