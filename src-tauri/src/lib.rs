@@ -281,23 +281,40 @@ struct DeleteResult {
     stats: ScanStats,
 }
 
+/// Apaga um item da varredura atual, identificado pelo `id` do nó ou pelo
+/// `path` (usado na lista de maiores arquivos, onde arquivos pequenos podem
+/// não ter nó próprio).
 #[tauri::command]
 async fn delete_node(
     state: State<'_, Arc<AppState>>,
-    id: u32,
+    id: Option<u32>,
+    path: Option<String>,
     permanent: bool,
 ) -> CmdResult<DeleteResult> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let path = with_tree(&state, |t| {
-            match t.kind(id) {
-                Some(NodeKind::Dir | NodeKind::File) => {}
-                _ => return Err("este item não pode ser apagado".into()),
+            let (id, path) = match (id, path) {
+                (Some(id), _) => (Some(id), t.path_of(id).ok_or("item não encontrado")?),
+                (None, Some(p)) => {
+                    let p = PathBuf::from(p);
+                    let id = t.find(&p);
+                    if id.is_none() && t.top_file_size(&p).is_none() {
+                        return Err("item não encontrado na varredura atual".into());
+                    }
+                    (id, p)
+                }
+                (None, None) => return Err("informe o item a apagar".into()),
+            };
+            if let Some(id) = id {
+                if !matches!(t.kind(id), Some(NodeKind::Dir | NodeKind::File)) {
+                    return Err("este item não pode ser apagado".into());
+                }
+                if id == t.root_id() {
+                    return Err("não é possível apagar a pasta raiz da varredura".into());
+                }
             }
-            if id == t.root_id() {
-                return Err("não é possível apagar a pasta raiz da varredura".into());
-            }
-            t.path_of(id).ok_or_else(|| "item não encontrado".into())
+            Ok(path)
         })?;
         check_deletable(&path)?;
 
@@ -313,29 +330,29 @@ async fn delete_node(
             trash::delete(&path).map_err(|e| e.to_string())
         };
 
-        with_tree(&state, |t| {
-            let Some(id) = t.find(&path) else {
-                return Err("a árvore mudou durante a exclusão".into());
-            };
-            match res {
-                Ok(()) => {
-                    let freed = t.remove(id).unwrap_or(0);
-                    Ok(DeleteResult {
-                        freed,
-                        stats: t.stats(),
-                    })
-                }
-                Err(e) => {
-                    // Exclusão parcial: re-varre o que sobrou para a árvore ficar correta.
-                    if path.exists() && t.kind(id) == Some(NodeKind::Dir) {
-                        if let Ok(sub) = diskscan::scan(&path, &ScanOptions::default(), &Progress::new()) {
+        with_tree(&state, |t| match res {
+            Ok(()) => {
+                let freed = t.remove_path(&path).unwrap_or(0);
+                Ok(DeleteResult {
+                    freed,
+                    stats: t.stats(),
+                })
+            }
+            Err(e) => {
+                // Exclusão parcial: re-varre o que sobrou para a árvore ficar correta.
+                match t.find(&path) {
+                    Some(id) if path.exists() && t.kind(id) == Some(NodeKind::Dir) => {
+                        let opts = ScanOptions::default();
+                        if let Ok(sub) = diskscan::scan(&path, &opts, &Progress::new()) {
                             t.replace_subtree(id, sub);
                         }
-                    } else if !path.exists() {
-                        t.remove(id);
                     }
-                    Err(format!("falha ao apagar {}: {e}", path.display()))
+                    _ if !path.exists() => {
+                        t.remove_path(&path);
+                    }
+                    _ => {}
                 }
+                Err(format!("falha ao apagar {}: {e}", path.display()))
             }
         })
     })
