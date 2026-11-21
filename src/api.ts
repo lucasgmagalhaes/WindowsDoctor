@@ -49,6 +49,8 @@ export interface ScanFinished {
   error: string | null;
   stats: Stats | null;
   rescannedPath: string | null;
+  /** On a cancelled rescan the folder keeps its previous data. */
+  cancelled: boolean;
 }
 
 export interface Crumb {

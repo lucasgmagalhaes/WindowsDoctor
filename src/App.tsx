@@ -74,11 +74,15 @@ export default function App() {
             return;
           }
           setStats(f.stats);
-          if (f.stats?.cancelled) notify("Varredura cancelada — exibindo resultado parcial.");
+          if (f.cancelled && !f.rescannedPath) notify("Varredura cancelada — exibindo resultado parcial.");
           if (f.rescannedPath && rescanReturnPath.current) {
             const id = await a.findPath(rescanReturnPath.current);
             setCurrentId(id);
-            notify(`Pasta re-analisada: ${f.rescannedPath}`);
+            notify(
+              f.cancelled
+                ? "Re-análise cancelada — os dados anteriores da pasta foram mantidos."
+                : `Pasta re-analisada: ${f.rescannedPath}`,
+            );
           } else {
             setCurrentId(null);
           }

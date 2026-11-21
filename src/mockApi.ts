@@ -262,7 +262,7 @@ export function createMockApi(): Api {
         }
         if (nodeId == null || !tree) tree = new MockTree(root.endsWith("\\") ? root : root + "\\", C_DRIVE);
         finishedCbs.forEach((cb) =>
-          cb({ ok: true, error: null, stats: tree!.stats(), rescannedPath: nodeId != null ? root : null }),
+          cb({ ok: true, error: null, stats: tree!.stats(), rescannedPath: nodeId != null ? root : null, cancelled }),
         );
       })();
     },
