@@ -217,6 +217,12 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .link-btn { border: none; background: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 .link-btn:hover { text-decoration: underline; }
 .spacer { flex: 1; }
+.cleanup-donot { margin-top: 8px; }
+.cleanup-donot h4 { color: var(--crit) !important; }
+.cleanup-donot > p { margin: 0 0 4px; }
+.cleanup-donot .cleanup-detail { padding-left: 0; }
+.donot-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.donot-head code { color: var(--muted); word-break: break-all; }
 .cleanup-results { width: 100%; border-collapse: collapse; }
 .cleanup-results td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .cleanup-results .num { text-align: right; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
