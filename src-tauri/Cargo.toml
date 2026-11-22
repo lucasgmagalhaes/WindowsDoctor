@@ -1,7 +1,7 @@
 [package]
 name = "windows-folder-map"
 version = "0.1.0"
-description = "Mapa de uso de disco por partição e diretório"
+description = "Mapa de disco, limpeza, diagnóstico e otimizações do Windows"
 edition = "2021"
 
 [lib]
@@ -13,6 +13,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 diskscan = { path = "../crates/diskscan" }
+systools = { path = "../crates/systools" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }

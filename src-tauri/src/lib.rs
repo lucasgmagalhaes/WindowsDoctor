@@ -7,6 +7,8 @@ use diskscan::{Crumb, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanS
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
+mod tools;
+
 #[derive(Default)]
 struct AppState {
     tree: Mutex<Option<Tree>>,
@@ -388,6 +390,15 @@ pub fn run() {
             find_path,
             reveal_path,
             delete_node,
+            tools::is_elevated,
+            tools::relaunch_as_admin,
+            tools::system_report,
+            tools::list_tweaks,
+            tools::set_tweak,
+            tools::list_startup,
+            tools::set_startup,
+            tools::list_cleanup,
+            tools::run_cleanup,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");
