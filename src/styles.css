@@ -200,3 +200,51 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
   .list-panel { width: 380px; }
   .item-meta { display: none; }
 }
+
+/* ---------- cleanup */
+.cleanup { flex: 1; overflow-y: auto; padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 16px; }
+.cleanup-head { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.cleanup-head h2 { margin: 0 0 4px; }
+.cleanup-head p { margin: 0; max-width: 640px; line-height: 1.5; }
+.cleanup-summary { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.cleanup-summary > div { display: flex; flex-direction: column; margin-right: 6px; min-width: 90px; }
+.cleanup-summary strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.cleanup-section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; border-left-width: 4px; }
+.cleanup-section.safe { border-left-color: var(--ok); }
+.cleanup-section.review { border-left-color: var(--warn); }
+.cleanup-section.system { border-left-color: var(--crit); }
+.cleanup-section h3 { margin: 0; font-size: 16px; }
+.section-lead { margin: 4px 0 8px; }
+.cleanup-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cleanup-row { display: flex; gap: 10px; padding: 10px 6px; border-top: 1px solid var(--border); border-radius: 6px; }
+.cleanup-row.on { background: var(--hl); }
+.cleanup-check { width: 22px; padding-top: 2px; display: flex; justify-content: center; flex-shrink: 0; }
+.cleanup-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+.no-check { font-size: 13px; opacity: 0.8; cursor: help; }
+.cleanup-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cleanup-title { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cleanup-title label { font-weight: 600; cursor: pointer; }
+.cleanup-title .badge { margin-left: 4px; }
+.cleanup-size { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cleanup-desc { margin: 0; line-height: 1.45; }
+.cleanup-body p.small { margin: 0; }
+.cleanup-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.cleanup-actions details { flex-basis: 100%; }
+.cleanup-actions summary { cursor: pointer; color: var(--muted); width: fit-content; }
+.path-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.path-list li { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.path-list code { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.small-btn { padding: 4px 10px; font-size: 12.5px; }
+.confirm-list { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.confirm-list li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.confirm-list li:last-child { border-bottom: none; }
+.run-report { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--ok); border-radius: 12px; padding: 12px 16px; }
+.run-report-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.run-report table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.run-report th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 6px; }
+.run-report td { padding: 4px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+.run-report .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.run-report p { margin: 6px 0 0; }
+.empty .spinner { display: inline-block; vertical-align: middle; width: 18px; height: 18px; margin-right: 8px; }
+.tabs button:disabled { opacity: 0.4; cursor: default; }
+.side-clean { display: flex; flex-direction: column; gap: 6px; }
