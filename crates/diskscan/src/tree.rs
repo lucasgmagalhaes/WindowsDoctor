@@ -449,6 +449,28 @@ impl Tree {
         Some(())
     }
 
+    /// Like [`Tree::find`], but ignoring case (as Windows does). Paths
+    /// coming from environment variables may be spelled differently from
+    /// the scanned ones.
+    pub fn find_ignore_case(&self, path: &Path) -> Option<u32> {
+        let lower = |s: &std::ffi::OsStr| s.to_string_lossy().to_lowercase();
+        let mut rest = path.components();
+        for rc in self.root_path.components() {
+            if lower(rc.as_os_str()) != lower(rest.next()?.as_os_str()) {
+                return None;
+            }
+        }
+        let mut cur = 0u32;
+        for comp in rest {
+            let name = lower(comp.as_os_str());
+            cur = *self.nodes[cur as usize].children.iter().find(|&&c| {
+                let n = &self.nodes[c as usize];
+                n.kind != NodeKind::Others && n.name.to_lowercase() == name
+            })?;
+        }
+        Some(cur)
+    }
+
     /// Encontra o id de um caminho absoluto dentro da árvore.
     pub fn find(&self, path: &Path) -> Option<u32> {
         let rel = path.strip_prefix(&self.root_path).ok()?;
@@ -548,6 +570,18 @@ mod tests {
         assert_eq!(t.path_of(id).unwrap(), deep);
         let crumbs: Vec<_> = t.ancestors(id).into_iter().map(|c| c.name).collect();
         assert_eq!(crumbs[1..], ["a", "deep"]);
+    }
+
+    #[test]
+    fn find_ignoring_case() {
+        let (d, t) = fixture();
+        let deep = d.path().join("a").join("deep");
+        let id = t.find(&deep).unwrap();
+        let shouted = PathBuf::from(deep.to_string_lossy().to_uppercase());
+        assert_eq!(t.find_ignore_case(&shouted), Some(id));
+        assert_eq!(t.find_ignore_case(d.path()), Some(0));
+        assert_eq!(t.find_ignore_case(&d.path().join("A").join("nope")), None);
+        assert_eq!(t.find_ignore_case(Path::new("/outside")), None);
     }
 
     #[test]
