@@ -10,10 +10,8 @@
 //! individuais: são somados em um nó "outros arquivos" por diretório. Isso
 //! mantém o uso de memória baixo em partições com milhões de arquivos.
 
-mod clean;
 mod scan;
 mod tree;
 
-pub use clean::{clean_dir_contents, measure, CleanReport};
 pub use scan::{scan, Progress, ProgressSnapshot, ScanOptions};
 pub use tree::{Crumb, FileInfo, NodeKind, NodeView, ScanStats, Tree};
