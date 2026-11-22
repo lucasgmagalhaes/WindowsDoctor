@@ -74,6 +74,87 @@ export interface StartScanArgs {
   minFileSize?: number;
 }
 
+// ---------------------------------------------------------------- ferramentas
+
+export type CheckStatus = "ok" | "info" | "warn" | "crit";
+
+export interface Check {
+  id: string;
+  title: string;
+  status: CheckStatus;
+  summary: string;
+  details: string[];
+  actions: string[];
+  /** Otimização que resolve ou ajuda (id de `Tweak`). */
+  tweak: string | null;
+  /** Módulo do app que ajuda. */
+  module: "cleanup" | "diskmap" | null;
+}
+
+export interface Gpu {
+  name: string;
+  driverVersion: string;
+  driverDate: string;
+  driverAgeDays: number | null;
+  refreshRate: number;
+  width: number;
+  height: number;
+}
+
+export interface Report {
+  summary: {
+    os: string;
+    cpu: string;
+    ramTotal: number;
+    ramFree: number;
+    uptimeSecs: number;
+    gpus: Gpu[];
+    monitors: { manufacturer: string; name: string; connection: string }[];
+    disks: { name: string; mediaType: string; health: string; size: number }[];
+  };
+  checks: Check[];
+}
+
+export interface Tweak {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  needsAdmin: boolean;
+  needsRestart: boolean;
+  /** null quando o estado não pôde ser lido (veja `error`). */
+  applied: boolean | null;
+  error: string | null;
+}
+
+export interface StartupEntry {
+  id: string;
+  name: string;
+  command: string;
+  location: string;
+  enabled: boolean;
+  needsAdmin: boolean;
+}
+
+export interface CleanupTarget {
+  id: string;
+  title: string;
+  description: string;
+  needsAdmin: boolean;
+  size: number;
+  files: number;
+  paths: string[];
+  note: string | null;
+}
+
+export interface CleanResult {
+  id: string;
+  freed: number;
+  deleted: number;
+  skipped: number;
+  error: string | null;
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -91,6 +172,17 @@ export interface Api {
   pickFolder(): Promise<string | null>;
   onProgress(cb: (p: Progress) => void): Promise<() => void>;
   onFinished(cb: (f: ScanFinished) => void): Promise<() => void>;
+
+  isElevated(): Promise<boolean>;
+  /** Reabre o app como administrador (fecha esta janela se der certo). */
+  relaunchAsAdmin(): Promise<void>;
+  systemReport(): Promise<Report>;
+  listTweaks(): Promise<Tweak[]>;
+  setTweak(id: string, apply: boolean): Promise<Tweak>;
+  listStartup(): Promise<StartupEntry[]>;
+  setStartup(id: string, enabled: boolean): Promise<void>;
+  listCleanup(): Promise<CleanupTarget[]>;
+  runCleanup(ids: string[]): Promise<CleanResult[]>;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -124,6 +216,15 @@ async function tauriApi(): Promise<Api> {
     },
     onProgress: (cb) => listen<Progress>("scan-progress", (e) => cb(e.payload)),
     onFinished: (cb) => listen<ScanFinished>("scan-finished", (e) => cb(e.payload)),
+    isElevated: () => invoke("is_elevated"),
+    relaunchAsAdmin: () => invoke("relaunch_as_admin"),
+    systemReport: () => invoke("system_report"),
+    listTweaks: () => invoke("list_tweaks"),
+    setTweak: (id, apply) => invoke("set_tweak", { id, apply }),
+    listStartup: () => invoke("list_startup"),
+    setStartup: (id, enabled) => invoke("set_startup", { id, enabled }),
+    listCleanup: () => invoke("list_cleanup"),
+    runCleanup: (ids) => invoke("run_cleanup", { ids }),
   };
 }
 

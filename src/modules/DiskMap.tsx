@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HierarchyRectangularNode } from "d3-hierarchy";
-import type { Api, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "./api";
-import { getApi } from "./api";
-import { Sunburst } from "./components/Sunburst";
-import { Treemap } from "./components/Treemap";
-import { ItemList } from "./components/ItemList";
-import { TopFiles } from "./components/TopFiles";
-import { Sidebar } from "./components/Sidebar";
-import { DeleteDialog, ScanOverlay, type DeleteTarget } from "./components/Dialogs";
-import { formatBytes, formatCount, formatPercent, nodeLabel } from "./format";
+import type { Api, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "../api";
+import { Sunburst } from "../components/Sunburst";
+import { Treemap } from "../components/Treemap";
+import { ItemList } from "../components/ItemList";
+import { TopFiles } from "../components/TopFiles";
+import { Sidebar } from "../components/Sidebar";
+import { DeleteDialog, ScanOverlay, type DeleteTarget } from "../components/Dialogs";
+import { formatBytes, formatCount, formatPercent, nodeLabel } from "../format";
+import type { Notify } from "../App";
 
 type RNode = HierarchyRectangularNode<NodeView>;
 type ChartMode = "sunburst" | "treemap";
@@ -21,8 +21,14 @@ interface Loaded {
   path: string;
 }
 
-export default function App() {
-  const [api, setApi] = useState<Api | null>(null);
+interface Props {
+  api: Api;
+  notify: Notify;
+  /** O módulo está visível (atalhos de teclado só valem nele). */
+  active: boolean;
+}
+
+export function DiskMap({ api, notify, active }: Props) {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [scanTarget, setScanTarget] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -35,14 +41,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("explore");
   const [hovered, setHovered] = useState<RNode | null>(null);
   const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
-  const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [minFileSize, setMinFileSize] = useState(1024 * 1024);
   const rescanReturnPath = useRef<string | null>(null);
-
-  const notify = useCallback((text: string, kind: "ok" | "err" = "ok") => {
-    setToast({ text, kind });
-    window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 6000);
-  }, []);
 
   const refreshDrives = useCallback(async (a: Api) => {
     try {
@@ -52,7 +52,7 @@ export default function App() {
     }
   }, [notify]);
 
-  // Inicialização e assinatura dos eventos de varredura.
+  // Partições e assinatura dos eventos de varredura.
   useEffect(() => {
     // The subscription is asynchronous: if the effect is torn down before it
     // finishes (React StrictMode mounts twice), the listener has to be removed
@@ -60,9 +60,8 @@ export default function App() {
     let disposed = false;
     const unsub: Array<() => void> = [];
     const keep = (u: () => void) => (disposed ? u() : unsub.push(u));
-    getApi().then(async (a) => {
-      if (disposed) return;
-      setApi(a);
+    const a = api;
+    (async () => {
       refreshDrives(a);
       keep(await a.onProgress(setProgress));
       keep(
@@ -92,16 +91,16 @@ export default function App() {
           refreshDrives(a);
         }),
       );
-    });
+    })();
     return () => {
       disposed = true;
       unsub.forEach((u) => u());
     };
-  }, [notify, refreshDrives]);
+  }, [api, notify, refreshDrives]);
 
   // Carrega o nó atual (gráfico + lista + breadcrumb).
   useEffect(() => {
-    if (!api || !stats) return;
+    if (!stats) return;
     let stale = false;
     (async () => {
       try {
@@ -142,14 +141,13 @@ export default function App() {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const typing = !!t && (t.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName));
-      if (e.key === "Backspace" && !typing && !toDelete && !scanTarget) goUp();
+      if (e.key === "Backspace" && active && !typing && !toDelete && !scanTarget) goUp();
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [goUp, toDelete, scanTarget]);
+  }, [goUp, toDelete, scanTarget, active]);
 
   const startScan = async (path: string) => {
-    if (!api) return;
     setScanTarget(path);
     setProgress(null);
     try {
@@ -161,7 +159,7 @@ export default function App() {
   };
 
   const rescan = async (id: number) => {
-    if (!api || !data) return;
+    if (!data) return;
     rescanReturnPath.current = data.path;
     setScanTarget(await api.getPath(id));
     try {
@@ -173,17 +171,16 @@ export default function App() {
   };
 
   const pickFolder = async () => {
-    if (!api) return;
     const p = await api.pickFolder();
     if (p) startScan(p);
   };
 
-  const reveal = (path: string, select: boolean) => api?.reveal(path, select).catch((e) => notify(String(e), "err"));
+  const reveal = (path: string, select: boolean) => api.reveal(path, select).catch((e) => notify(String(e), "err"));
 
   const askDeleteFile = (f: FileInfo) => setToDelete({ id: null, path: f.path, size: f.size, isDir: false });
 
   const confirmDelete = async (permanent: boolean) => {
-    if (!api || !toDelete) return;
+    if (!toDelete) return;
     try {
       const r = await api.deleteNode(toDelete.id != null ? { id: toDelete.id } : { path: toDelete.path }, permanent);
       setStats(r.stats);
@@ -216,7 +213,7 @@ export default function App() {
     : null;
 
   return (
-    <div className="app">
+    <div className="module" hidden={!active}>
       <Sidebar
         drives={drives}
         activeRoot={stats?.root ?? null}
@@ -225,17 +222,13 @@ export default function App() {
         onMinFileSize={setMinFileSize}
         onScan={startScan}
         onPickFolder={pickFolder}
-        onRefreshDrives={() => api && refreshDrives(api)}
+        onRefreshDrives={() => refreshDrives(api)}
       />
 
       <main className="main">
-        {api?.isMock && (
-          <div className="mock-banner">Modo demonstração (navegador): dados simulados. Rode com <code>npm run tauri dev</code> para analisar o disco real.</div>
-        )}
-
         {!stats || !data ? (
           <div className="welcome">
-            <h1>Windows Folder Map</h1>
+            <h1>Mapa do disco</h1>
             <p>Escolha uma partição à esquerda para ver onde o espaço está sendo usado, da raiz até cada pasta.</p>
             <ul className="muted">
               <li>O <strong>sunburst</strong> mostra cada nível como um anel; a fatia é proporcional ao tamanho.</li>
@@ -372,13 +365,8 @@ export default function App() {
         )}
       </main>
 
-      {scanTarget && <ScanOverlay progress={progress} target={scanTarget} onCancel={() => api?.cancelScan()} />}
+      {scanTarget && <ScanOverlay progress={progress} target={scanTarget} onCancel={() => api.cancelScan()} />}
       {toDelete && <DeleteDialog target={toDelete} onConfirm={confirmDelete} onClose={() => setToDelete(null)} />}
-      {toast && (
-        <div className={`toast ${toast.kind}`} role="status" onClick={() => setToast(null)}>
-          {toast.text}
-        </div>
-      )}
     </div>
   );
 }

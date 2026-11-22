@@ -3,6 +3,7 @@
 // remoção com propagação de tamanhos etc.) sobre uma partição fictícia.
 
 import { isProtected } from "./hints";
+import { createMockTools } from "./mockTools";
 import type { Api, Crumb, FileInfo, NodeKind, NodeView, Progress, ScanFinished, Stats } from "./api";
 
 interface MNode {
@@ -240,6 +241,7 @@ export function createMockApi(): Api {
 
   return {
     isMock: true,
+    ...createMockTools(),
     async listDrives() {
       return [
         { mount: "C:\\", label: "Windows", fileSystem: "NTFS", total: 476 * GB, available: 38 * GB, removable: false, kind: "SSD" },
