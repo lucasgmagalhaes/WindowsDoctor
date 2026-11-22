@@ -54,7 +54,7 @@ export function TopFiles({ files, onReveal, onDelete }: Props) {
                 </button>
                 <button
                   className="icon-btn danger"
-                  title={isProtected(f.path) ? "Protegido: arquivo do sistema" : "Excluir"}
+                  title={isProtected(f.path) || hint?.level === "system" ? "Não apague manualmente: veja a aba Limpeza" : "Excluir"}
                   disabled={isProtected(f.path) || !!hint && hint.level === "system"}
                   onClick={() => onDelete(f)}
                 >

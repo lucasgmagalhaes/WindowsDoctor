@@ -76,8 +76,12 @@ export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, o
                   )}
                   <button
                     className="icon-btn danger"
-                    title={isProtected(path) ? "Protegido: pasta do sistema" : "Excluir"}
-                    disabled={isProtected(path)}
+                    title={
+                      isProtected(path) || hint?.level === "system"
+                        ? "Não apague manualmente: veja a aba Limpeza"
+                        : "Excluir"
+                    }
+                    disabled={isProtected(path) || hint?.level === "system"}
                     onClick={() => onDelete({ id: it.id!, path, size: it.size, isDir: it.kind === "dir" })}
                   >
                     🗑
