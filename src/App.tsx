@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HierarchyRectangularNode } from "d3-hierarchy";
-import type { Api, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "./api";
+import type { Api, CleanupRun, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "./api";
 import { getApi } from "./api";
 import { Sunburst } from "./components/Sunburst";
 import { Treemap } from "./components/Treemap";
 import { ItemList } from "./components/ItemList";
 import { TopFiles } from "./components/TopFiles";
 import { Sidebar } from "./components/Sidebar";
+import { CleanupPanel } from "./components/CleanupPanel";
 import { DeleteDialog, ScanOverlay, type DeleteTarget } from "./components/Dialogs";
 import { formatBytes, formatCount, formatPercent, nodeLabel } from "./format";
 
 type RNode = HierarchyRectangularNode<NodeView>;
 type ChartMode = "sunburst" | "treemap";
-type Tab = "explore" | "top";
+type Tab = "explore" | "top" | "cleanup";
 
 interface Loaded {
   chart: NodeView;
@@ -85,6 +86,7 @@ export default function App() {
             );
           } else {
             setCurrentId(null);
+            setTab("explore");
           }
           rescanReturnPath.current = null;
           setHovered(null);
@@ -203,6 +205,14 @@ export default function App() {
     }
   };
 
+  // After a cleanup: the backend has already rescanned the touched folders.
+  const onCleaned = (run: CleanupRun) => {
+    if (run.stats) setStats(run.stats);
+    setHovered(null);
+    setVersion((v) => v + 1);
+    if (api) refreshDrives(api);
+  };
+
   const scanDrive = stats ? drives.find((d) => d.mount === stats.root) : undefined;
   const unaccounted = scanDrive ? scanDrive.total - scanDrive.available - stats!.totalSize : 0;
   const highlightId = hovered ? hovered.ancestors().find((a) => a.depth === 1)?.data.id ?? null : null;
@@ -226,6 +236,7 @@ export default function App() {
         onScan={startScan}
         onPickFolder={pickFolder}
         onRefreshDrives={() => api && refreshDrives(api)}
+        onCleanup={() => setTab("cleanup")}
       />
 
       <main className="main">
@@ -233,7 +244,57 @@ export default function App() {
           <div className="mock-banner">Modo demonstração (navegador): dados simulados. Rode com <code>npm run tauri dev</code> para analisar o disco real.</div>
         )}
 
-        {!stats || !data ? (
+        <header className="topbar">
+          {stats ? (
+          <div className="stats">
+            <div>
+              <span className="muted small">Analisado</span>
+              <strong>{formatBytes(stats.totalSize)}</strong>
+            </div>
+            <div>
+              <span className="muted small">Arquivos</span>
+              <strong>{formatCount(stats.fileCount)}</strong>
+            </div>
+            <div>
+              <span className="muted small">Pastas</span>
+              <strong>{formatCount(stats.dirCount)}</strong>
+            </div>
+            <div>
+              <span className="muted small">Tempo</span>
+              <strong>{(stats.elapsedMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s</strong>
+            </div>
+            {stats.errors > 0 && (
+              <div title="Pastas que não puderam ser lidas. Execute como administrador para incluí-las.">
+                <span className="muted small">Sem acesso</span>
+                <strong className="warn-text">{formatCount(stats.errors)}</strong>
+              </div>
+            )}
+            {scanDrive && unaccounted > 1024 ** 3 && (
+              <div title="Espaço usado na partição que não apareceu na varredura: arquivos de sistema (MFT, sombras de volume), pastas sem permissão ou arquivos em uso.">
+                <span className="muted small">Não contabilizado</span>
+                <strong className="muted">{formatBytes(unaccounted)}</strong>
+              </div>
+            )}
+          </div>
+          ) : (
+            <span className="muted">Nenhuma partição analisada ainda — escolha uma à esquerda.</span>
+          )}
+          <div className="tabs" role="tablist">
+            <button role="tab" aria-selected={tab === "explore"} className={tab === "explore" ? "on" : ""} disabled={!stats} onClick={() => setTab("explore")}>
+              Explorar
+            </button>
+            <button role="tab" aria-selected={tab === "top"} className={tab === "top" ? "on" : ""} disabled={!stats} onClick={() => setTab("top")}>
+              Maiores arquivos
+            </button>
+            <button role="tab" aria-selected={tab === "cleanup"} className={tab === "cleanup" ? "on" : ""} onClick={() => setTab("cleanup")}>
+              Limpeza
+            </button>
+          </div>
+        </header>
+
+        {tab === "cleanup" ? (
+          api && <CleanupPanel api={api} onCleaned={onCleaned} onReveal={reveal} notify={notify} />
+        ) : !stats || !data ? (
           <div className="welcome">
             <h1>Windows Folder Map</h1>
             <p>Escolha uma partição à esquerda para ver onde o espaço está sendo usado, da raiz até cada pasta.</p>
@@ -243,132 +304,87 @@ export default function App() {
               <li>Clique em uma pasta para entrar nela; clique no centro ou use <kbd>Backspace</kbd> para subir.</li>
             </ul>
           </div>
-        ) : (
+        ) : tab === "explore" ? (
           <>
-            <header className="topbar">
-              <div className="stats">
-                <div>
-                  <span className="muted small">Analisado</span>
-                  <strong>{formatBytes(stats.totalSize)}</strong>
-                </div>
-                <div>
-                  <span className="muted small">Arquivos</span>
-                  <strong>{formatCount(stats.fileCount)}</strong>
-                </div>
-                <div>
-                  <span className="muted small">Pastas</span>
-                  <strong>{formatCount(stats.dirCount)}</strong>
-                </div>
-                <div>
-                  <span className="muted small">Tempo</span>
-                  <strong>{(stats.elapsedMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s</strong>
-                </div>
-                {stats.errors > 0 && (
-                  <div title="Pastas que não puderam ser lidas. Execute como administrador para incluí-las.">
-                    <span className="muted small">Sem acesso</span>
-                    <strong className="warn-text">{formatCount(stats.errors)}</strong>
-                  </div>
-                )}
-                {scanDrive && unaccounted > 1024 ** 3 && (
-                  <div title="Espaço usado na partição que não apareceu na varredura: arquivos de sistema (MFT, sombras de volume), pastas sem permissão ou arquivos em uso.">
-                    <span className="muted small">Não contabilizado</span>
-                    <strong className="muted">{formatBytes(unaccounted)}</strong>
-                  </div>
-                )}
-              </div>
-              <div className="tabs" role="tablist">
-                <button role="tab" aria-selected={tab === "explore"} className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>
-                  Explorar
+            <nav className="crumbs" aria-label="Caminho">
+              {data.crumbs.map((c, i) => (
+                <span key={c.id}>
+                  {i > 0 && <span className="sep">›</span>}
+                  <button className="crumb" disabled={i === data.crumbs.length - 1} onClick={() => navigate(c.id)}>
+                    {c.name.replace(/\\$/, "") || c.name}
+                  </button>
+                </span>
+              ))}
+              <span className="crumb-size">
+                {formatBytes(data.list.size)}
+                {data.crumbs.length > 1 && <span className="muted"> · {formatPercent(data.list.size, stats.totalSize)} do total</span>}
+              </span>
+              {data.crumbs.length > 1 && (
+                <button className="icon-btn" title="Mostrar no Explorer" onClick={() => reveal(data.path, false)}>
+                  ↗
                 </button>
-                <button role="tab" aria-selected={tab === "top"} className={tab === "top" ? "on" : ""} onClick={() => setTab("top")}>
-                  Maiores arquivos
-                </button>
-              </div>
-            </header>
+              )}
+            </nav>
 
-            {tab === "explore" ? (
-              <>
-                <nav className="crumbs" aria-label="Caminho">
-                  {data.crumbs.map((c, i) => (
-                    <span key={c.id}>
-                      {i > 0 && <span className="sep">›</span>}
-                      <button className="crumb" disabled={i === data.crumbs.length - 1} onClick={() => navigate(c.id)}>
-                        {c.name.replace(/\\$/, "") || c.name}
-                      </button>
-                    </span>
-                  ))}
-                  <span className="crumb-size">
-                    {formatBytes(data.list.size)}
-                    {data.crumbs.length > 1 && <span className="muted"> · {formatPercent(data.list.size, stats.totalSize)} do total</span>}
-                  </span>
-                  {data.crumbs.length > 1 && (
-                    <button className="icon-btn" title="Mostrar no Explorer" onClick={() => reveal(data.path, false)}>
-                      ↗
+            <div className="explore">
+              <section className="chart-panel">
+                <div className="chart-toolbar">
+                  <div className="seg-ctrl">
+                    <button className={mode === "sunburst" ? "on" : ""} onClick={() => setMode("sunburst")}>
+                      Sunburst
                     </button>
-                  )}
-                </nav>
-
-                <div className="explore">
-                  <section className="chart-panel">
-                    <div className="chart-toolbar">
-                      <div className="seg-ctrl">
-                        <button className={mode === "sunburst" ? "on" : ""} onClick={() => setMode("sunburst")}>
-                          Sunburst
-                        </button>
-                        <button className={mode === "treemap" ? "on" : ""} onClick={() => setMode("treemap")}>
-                          Treemap
-                        </button>
-                      </div>
-                      <div className="hover-info" aria-live="polite">
-                        {hovered ? (
-                          <>
-                            <span className="hover-path">{hoverPath}</span>
-                            <strong>{formatBytes(hovered.data.size)}</strong>
-                            <span className="muted">{formatPercent(hovered.data.size, data.chart.size)}</span>
-                          </>
-                        ) : (
-                          <span className="muted">Passe o mouse para detalhes · clique para entrar na pasta</span>
-                        )}
-                      </div>
-                    </div>
-                    {mode === "sunburst" ? (
-                      <Sunburst
-                        data={data.chart}
-                        depth={4}
-                        hovered={hovered}
-                        onHover={setHovered}
-                        onNavigate={navigate}
-                        onUp={goUp}
-                        canGoUp={data.crumbs.length > 1}
-                      />
+                    <button className={mode === "treemap" ? "on" : ""} onClick={() => setMode("treemap")}>
+                      Treemap
+                    </button>
+                  </div>
+                  <div className="hover-info" aria-live="polite">
+                    {hovered ? (
+                      <>
+                        <span className="hover-path">{hoverPath}</span>
+                        <strong>{formatBytes(hovered.data.size)}</strong>
+                        <span className="muted">{formatPercent(hovered.data.size, data.chart.size)}</span>
+                      </>
                     ) : (
-                      <Treemap data={data.chart} depth={3} hovered={hovered} onHover={setHovered} onNavigate={navigate} />
+                      <span className="muted">Passe o mouse para detalhes · clique para entrar na pasta</span>
                     )}
-                  </section>
-
-                  <section className="list-panel">
-                    <h3>
-                      Conteúdo <span className="muted small">({formatCount(data.list.children.length)} itens, maior primeiro)</span>
-                    </h3>
-                    <ItemList
-                      items={data.list.children}
-                      parentPath={data.path}
-                      parentSize={data.list.size}
-                      highlightId={highlightId}
-                      onOpen={navigate}
-                      onReveal={reveal}
-                      onDelete={setToDelete}
-                      onRescan={rescan}
-                    />
-                  </section>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <section className="top-panel">
-                <TopFiles files={topFiles} onReveal={reveal} onDelete={askDeleteFile} />
+                {mode === "sunburst" ? (
+                  <Sunburst
+                    data={data.chart}
+                    depth={4}
+                    hovered={hovered}
+                    onHover={setHovered}
+                    onNavigate={navigate}
+                    onUp={goUp}
+                    canGoUp={data.crumbs.length > 1}
+                  />
+                ) : (
+                  <Treemap data={data.chart} depth={3} hovered={hovered} onHover={setHovered} onNavigate={navigate} />
+                )}
               </section>
-            )}
+
+              <section className="list-panel">
+                <h3>
+                  Conteúdo <span className="muted small">({formatCount(data.list.children.length)} itens, maior primeiro)</span>
+                </h3>
+                <ItemList
+                  items={data.list.children}
+                  parentPath={data.path}
+                  parentSize={data.list.size}
+                  highlightId={highlightId}
+                  onOpen={navigate}
+                  onReveal={reveal}
+                  onDelete={setToDelete}
+                  onRescan={rescan}
+                />
+              </section>
+            </div>
           </>
+        ) : (
+          <section className="top-panel">
+            <TopFiles files={topFiles} onReveal={reveal} onDelete={askDeleteFile} />
+          </section>
         )}
       </main>
 

@@ -10,6 +10,7 @@ interface Props {
   onScan: (path: string) => void;
   onPickFolder: () => void;
   onRefreshDrives: () => void;
+  onCleanup: () => void;
 }
 
 const MIN_SIZES = [
@@ -19,7 +20,7 @@ const MIN_SIZES = [
   { v: 10 * 1024 * 1024, label: "10 MB" },
 ];
 
-export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, onScan, onPickFolder, onRefreshDrives }: Props) {
+export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, onScan, onPickFolder, onRefreshDrives, onCleanup }: Props) {
   return (
     <aside className="sidebar">
       <div className="side-head">
@@ -59,6 +60,12 @@ export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, 
       <button className="btn block" disabled={busy} onClick={onPickFolder}>
         Analisar uma pasta…
       </button>
+      <div className="side-clean">
+        <button className="btn block" disabled={busy} onClick={onCleanup}>
+          🧹 Limpeza recomendada
+        </button>
+        <small className="muted">Mostra o que pode e o que não pode ser apagado, e limpa o que é seguro.</small>
+      </div>
       <label className="field">
         <span>Agrupar arquivos menores que</span>
         <select value={minFileSize} onChange={(e) => onMinFileSize(Number(e.target.value))} disabled={busy}>
