@@ -3340,6 +3340,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "systools"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "trash",
+ "winreg",
+]
+
+[[package]]
 name = "tao"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4459,6 +4470,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "systools",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
