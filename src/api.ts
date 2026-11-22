@@ -68,6 +68,50 @@ export interface DeleteResult {
   stats: Stats;
 }
 
+export type CleanupLevel = "safe" | "review" | "system";
+export type CleanupAction = "clean" | "recycleBin" | "manual";
+
+/** A location from the cleanup catalogue (resolved by the backend). */
+export interface CleanupItem {
+  id: string;
+  title: string;
+  description: string;
+  level: CleanupLevel;
+  action: CleanupAction;
+  paths: string[];
+  size: number | null;
+  fileCount: number | null;
+  minAgeHours: number;
+  needsAdmin: boolean;
+  note: string | null;
+  /** Windows tool that handles the item (opened with openSystemTool). */
+  tool: string | null;
+  /** Command run as administrator (runElevated) and its text. */
+  commandId: string | null;
+  command: string | null;
+}
+
+export interface CleanReport {
+  freed: number;
+  deleted: number;
+  failed: number;
+  skippedRecent: number;
+}
+
+export interface CleanupResult {
+  id: string;
+  title: string;
+  report: CleanReport;
+  error: string | null;
+}
+
+export interface CleanupRun {
+  results: CleanupResult[];
+  total: CleanReport;
+  /** Updated stats of the current scan (if there is one). */
+  stats: Stats | null;
+}
+
 export interface StartScanArgs {
   path?: string;
   nodeId?: number;
@@ -89,6 +133,10 @@ export interface Api {
   /** Deletes by node `id` or, for grouped files from the top list, by `path`. */
   deleteNode(target: { id: number } | { path: string }, permanent: boolean): Promise<DeleteResult>;
   pickFolder(): Promise<string | null>;
+  analyzeCleanup(): Promise<CleanupItem[]>;
+  runCleanup(ids: string[]): Promise<CleanupRun>;
+  openSystemTool(tool: string): Promise<void>;
+  runElevated(commandId: string): Promise<void>;
   onProgress(cb: (p: Progress) => void): Promise<() => void>;
   onFinished(cb: (f: ScanFinished) => void): Promise<() => void>;
 }
@@ -122,6 +170,10 @@ async function tauriApi(): Promise<Api> {
       const r = await open({ directory: true, multiple: false });
       return typeof r === "string" ? r : null;
     },
+    analyzeCleanup: () => invoke("analyze_cleanup"),
+    runCleanup: (ids) => invoke("run_cleanup", { ids }),
+    openSystemTool: (tool) => invoke("open_system_tool", { tool }),
+    runElevated: (commandId) => invoke("run_elevated", { commandId }),
     onProgress: (cb) => listen<Progress>("scan-progress", (e) => cb(e.payload)),
     onFinished: (cb) => listen<ScanFinished>("scan-finished", (e) => cb(e.payload)),
   };
