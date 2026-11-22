@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HierarchyRectangularNode } from "d3-hierarchy";
-import type { Api, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "./api";
+import type { Api, CleanupRunResult, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "./api";
 import { getApi } from "./api";
 import { Sunburst } from "./components/Sunburst";
 import { Treemap } from "./components/Treemap";
@@ -8,6 +8,7 @@ import { ItemList } from "./components/ItemList";
 import { TopFiles } from "./components/TopFiles";
 import { Sidebar } from "./components/Sidebar";
 import { DeleteDialog, ScanOverlay, type DeleteTarget } from "./components/Dialogs";
+import { CleanupDialog } from "./components/Cleanup";
 import { formatBytes, formatCount, formatPercent, nodeLabel } from "./format";
 
 type RNode = HierarchyRectangularNode<NodeView>;
@@ -35,6 +36,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("explore");
   const [hovered, setHovered] = useState<RNode | null>(null);
   const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
   const [minFileSize, setMinFileSize] = useState(1024 * 1024);
   const rescanReturnPath = useRef<string | null>(null);
@@ -142,11 +144,11 @@ export default function App() {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const typing = !!t && (t.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName));
-      if (e.key === "Backspace" && !typing && !toDelete && !scanTarget) goUp();
+      if (e.key === "Backspace" && !typing && !toDelete && !cleanupOpen && !scanTarget) goUp();
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [goUp, toDelete, scanTarget]);
+  }, [goUp, toDelete, cleanupOpen, scanTarget]);
 
   const startScan = async (path: string) => {
     if (!api) return;
@@ -203,6 +205,17 @@ export default function App() {
     }
   };
 
+  const cleanupFinished = (run: CleanupRunResult) => {
+    if (!api) return;
+    // The backend already updated the folders it cleaned in the current scan.
+    if (run.stats) {
+      setStats(run.stats);
+      setHovered(null);
+      setVersion((v) => v + 1);
+    }
+    refreshDrives(api);
+  };
+
   const scanDrive = stats ? drives.find((d) => d.mount === stats.root) : undefined;
   const unaccounted = scanDrive ? scanDrive.total - scanDrive.available - stats!.totalSize : 0;
   const highlightId = hovered ? hovered.ancestors().find((a) => a.depth === 1)?.data.id ?? null : null;
@@ -226,6 +239,7 @@ export default function App() {
         onScan={startScan}
         onPickFolder={pickFolder}
         onRefreshDrives={() => api && refreshDrives(api)}
+        onCleanup={() => setCleanupOpen(true)}
       />
 
       <main className="main">
@@ -374,6 +388,9 @@ export default function App() {
 
       {scanTarget && <ScanOverlay progress={progress} target={scanTarget} onCancel={() => api?.cancelScan()} />}
       {toDelete && <DeleteDialog target={toDelete} onConfirm={confirmDelete} onClose={() => setToDelete(null)} />}
+      {cleanupOpen && api && (
+        <CleanupDialog api={api} onClose={() => setCleanupOpen(false)} onFinished={cleanupFinished} />
+      )}
       {toast && (
         <div className={`toast ${toast.kind}`} role="status" onClick={() => setToast(null)}>
           {toast.text}

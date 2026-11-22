@@ -68,6 +68,48 @@ export interface DeleteResult {
   stats: Stats;
 }
 
+export type CleanupLevel = "safe" | "review";
+
+export interface CleanupCategory {
+  id: string;
+  group: string;
+  title: string;
+  detail: string;
+  level: CleanupLevel;
+  needsAdmin: boolean;
+  /** null when the size is only known after running (DISM). */
+  size: number | null;
+  files: number;
+  paths: string[];
+}
+
+export interface CleanupReport {
+  isAdmin: boolean;
+  categories: CleanupCategory[];
+}
+
+export interface CleanupResult {
+  id: string;
+  title: string;
+  freed: number;
+  files: number;
+  /** Items that could not be deleted (in use, no permission…). */
+  failed: number;
+  error: string | null;
+}
+
+export interface CleanupRunResult {
+  results: CleanupResult[];
+  /** Totals of the current scan after updating it; null without a scan. */
+  stats: Stats | null;
+}
+
+export interface CleanupProgress {
+  index: number;
+  total: number;
+  title: string;
+}
+
 export interface StartScanArgs {
   path?: string;
   nodeId?: number;
@@ -89,6 +131,11 @@ export interface Api {
   /** Deletes by node `id` or, for grouped files from the top list, by `path`. */
   deleteNode(target: { id: number } | { path: string }, permanent: boolean): Promise<DeleteResult>;
   pickFolder(): Promise<string | null>;
+  cleanupAnalyze(): Promise<CleanupReport>;
+  cleanupRun(ids: string[]): Promise<CleanupRunResult>;
+  onCleanupProgress(cb: (p: CleanupProgress) => void): Promise<() => void>;
+  /** Restarts the app elevated (UAC); the current window closes. */
+  relaunchAsAdmin(): Promise<void>;
   onProgress(cb: (p: Progress) => void): Promise<() => void>;
   onFinished(cb: (f: ScanFinished) => void): Promise<() => void>;
 }
@@ -122,6 +169,10 @@ async function tauriApi(): Promise<Api> {
       const r = await open({ directory: true, multiple: false });
       return typeof r === "string" ? r : null;
     },
+    cleanupAnalyze: () => invoke("cleanup_analyze"),
+    cleanupRun: (ids) => invoke("cleanup_run", { ids }),
+    relaunchAsAdmin: () => invoke("relaunch_as_admin"),
+    onCleanupProgress: (cb) => listen<CleanupProgress>("cleanup-progress", (e) => cb(e.payload)),
     onProgress: (cb) => listen<Progress>("scan-progress", (e) => cb(e.payload)),
     onFinished: (cb) => listen<ScanFinished>("scan-finished", (e) => cb(e.payload)),
   };

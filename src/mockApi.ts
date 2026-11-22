@@ -3,7 +3,9 @@
 // remoção com propagação de tamanhos etc.) sobre uma partição fictícia.
 
 import { isProtected } from "./hints";
-import type { Api, Crumb, FileInfo, NodeKind, NodeView, Progress, ScanFinished, Stats } from "./api";
+import type {
+  Api, CleanupCategory, CleanupProgress, Crumb, FileInfo, NodeKind, NodeView, Progress, ScanFinished, Stats,
+} from "./api";
 
 interface MNode {
   id: number;
@@ -216,6 +218,19 @@ class MockTree {
     return n.size;
   }
 
+  find(path: string): number | null {
+    const n = this.nodes.find((x) => !x.removed && x.kind !== "others" && this.pathOf(x.id) === path);
+    return n ? n.id : null;
+  }
+
+  /** Removes everything inside a folder (or the item itself with `whole`). */
+  clear(path: string, whole: boolean): number {
+    const id = this.find(path);
+    if (id == null) return 0;
+    if (whole) return this.remove(id);
+    return [...this.nodes[id].children].reduce((s, c) => s + this.remove(c), 0);
+  }
+
   stats(): Stats {
     const r = this.nodes[0];
     return {
@@ -225,11 +240,57 @@ class MockTree {
   }
 }
 
+type MockCategory = Omit<CleanupCategory, "size" | "files" | "paths"> & { rel: string[]; whole?: boolean; fixed?: number };
+
+// Same ids and texts as the backend catalogue (src-tauri/src/cleanup.rs).
+const MOCK_CLEANUP: MockCategory[] = [
+  { id: "user-temp", group: "Sistema", title: "Arquivos temporários do usuário", level: "safe", needsAdmin: false,
+    detail: "Pasta %TEMP%. Arquivos das últimas 24 horas são mantidos.", rel: ["Users\\voce\\AppData\\Local\\Temp"] },
+  { id: "windows-temp", group: "Sistema", title: "Arquivos temporários do Windows", level: "safe", needsAdmin: true,
+    detail: "Pasta C:\\Windows\\Temp. Arquivos das últimas 24 horas são mantidos.", rel: ["Windows\\Temp"] },
+  { id: "windows-update", group: "Sistema", title: "Cache do Windows Update", level: "safe", needsAdmin: true,
+    detail: "Atualizações já baixadas/instaladas. O serviço Windows Update é parado durante a limpeza.",
+    rel: ["Windows\\SoftwareDistribution\\Download"] },
+  { id: "crash-dumps", group: "Sistema", title: "Dumps de erro e relatórios de falha", level: "safe", needsAdmin: true,
+    detail: "Relatórios de travamento (WER), minidumps, MEMORY.DMP e LiveKernelReports.",
+    rel: ["Users\\voce\\AppData\\Local\\CrashDumps"] },
+  { id: "recycle-bin", group: "Sistema", title: "Lixeira", level: "safe", needsAdmin: false,
+    detail: "Esvazia a Lixeira de todas as partições.", rel: ["$Recycle.Bin"] },
+  { id: "old-windows", group: "Sistema", title: "Instalações anteriores do Windows", level: "review", needsAdmin: true,
+    detail: "Windows.old e restos de atualizações ($WINDOWS.~BT, $WINDOWS.~WS…). Depois disso não é mais possível voltar para a versão anterior do Windows.",
+    rel: ["Windows.old"], whole: true },
+  { id: "dism", group: "Sistema", title: "Limpeza de componentes (WinSxS)", level: "review", needsAdmin: true,
+    detail: "Roda 'Dism /Online /Cleanup-Image /StartComponentCleanup', que remove versões antigas de componentes. Pode levar vários minutos.",
+    rel: [], fixed: 1.3 * GB },
+  { id: "browsers", group: "Navegadores", title: "Cache dos navegadores", level: "safe", needsAdmin: false,
+    detail: "Chrome, Edge, Brave, Opera, Vivaldi e Firefox. Histórico, senhas e logins são mantidos; feche os navegadores antes para limpar tudo.",
+    rel: ["Users\\voce\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache"] },
+  { id: "shader-caches", group: "Aplicativos", title: "Cache de shaders (DirectX, NVIDIA, AMD, Steam)", level: "safe", needsAdmin: false,
+    detail: "Recriado pelos jogos; o primeiro carregamento depois da limpeza pode ser mais lento.",
+    rel: ["Users\\voce\\AppData\\Local\\NVIDIA\\DXCache"] },
+  { id: "driver-installers", group: "Instaladores", title: "Restos de instaladores de drivers", level: "safe", needsAdmin: true,
+    detail: "Pacotes extraídos pelos instaladores da NVIDIA, AMD e Intel (C:\\AMD, Installer2, Downloader…).",
+    rel: ["Program Files\\NVIDIA Corporation\\Installer2"] },
+  { id: "downloaded-installers", group: "Instaladores", title: "Instaladores na pasta Downloads", level: "review", needsAdmin: false,
+    detail: "Arquivos .exe, .msi, .msix e .appx da pasta Downloads. Revise: você pode querer guardar algum.",
+    rel: ["Users\\voce\\Downloads\\instaladores"] },
+  { id: "dev-caches", group: "Desenvolvimento", title: "Cache de gerenciadores de pacotes", level: "safe", needsAdmin: false,
+    detail: "npm, Yarn, pnpm, pip, NuGet (cache HTTP), Go e Cargo. Os pacotes são baixados de novo quando necessário.",
+    rel: ["Users\\voce\\AppData\\Local\\npm-cache"] },
+  { id: "dev-packages", group: "Desenvolvimento", title: "Pacotes baixados (Gradle, NuGet, Maven, pnpm)", level: "review", needsAdmin: false,
+    detail: "Repositórios locais de dependências. Os projetos baixam tudo de novo no próximo build (pode demorar).",
+    rel: ["Users\\voce\\.gradle\\caches", "Users\\voce\\.nuget\\packages"] },
+];
+
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function createMockApi(): Api {
   let tree: MockTree | null = null;
   const progressCbs = new Set<(p: Progress) => void>();
+  const cleanupCbs = new Set<(p: CleanupProgress) => void>();
+  const cleaned = new Set<string>();
+  // The demo cleans the C: drive of the scanned tree, or a fresh copy of it.
+  const cleanupTree = () => (tree?.rootPath === "C:\\" ? tree : new MockTree("C:\\", C_DRIVE));
   const finishedCbs = new Set<(f: ScanFinished) => void>();
   let cancelled = false;
 
@@ -291,9 +352,7 @@ export function createMockApi(): Api {
       return need().top.slice(0, limit);
     },
     async findPath(path) {
-      const t = need();
-      const n = t.nodes.find((x) => !x.removed && x.kind !== "others" && t.pathOf(x.id) === path);
-      return n ? n.id : null;
+      return need().find(path);
     },
     async reveal(path) {
       console.info("[mock] abrir no Explorer:", path);
@@ -312,6 +371,52 @@ export function createMockApi(): Api {
     },
     async pickFolder() {
       return window.prompt("Caminho da pasta:", "D:\\Projetos");
+    },
+    async cleanupAnalyze() {
+      await delay(700);
+      const t = cleanupTree();
+      return {
+        isAdmin: false,
+        categories: MOCK_CLEANUP.map(({ rel, whole: _w, fixed, ...c }) => {
+          const paths = rel.map((r) => "C:\\" + r);
+          const ids = paths.map((p) => t.find(p)).filter((x): x is number => x != null);
+          const done = cleaned.has(c.id);
+          return {
+            ...c,
+            paths: paths.length ? paths : ["Dism.exe"],
+            size: fixed != null ? null : done ? 0 : ids.reduce((s, id) => s + t.nodes[id].size, 0),
+            files: done ? 0 : ids.reduce((s, id) => s + t.nodes[id].fileCount, 0),
+          };
+        }),
+      };
+    },
+    async cleanupRun(ids) {
+      const t = cleanupTree();
+      const results = [];
+      for (const [index, id] of ids.entries()) {
+        const c = MOCK_CLEANUP.find((x) => x.id === id);
+        if (!c) continue;
+        cleanupCbs.forEach((cb) => cb({ index, total: ids.length, title: c.title }));
+        await delay(c.fixed ? 1500 : 400);
+        let freed = c.fixed && !cleaned.has(id) ? c.fixed : 0;
+        let files = 0;
+        for (const r of c.rel) {
+          const nid = t.find("C:\\" + r);
+          if (nid != null) files += t.nodes[nid].fileCount;
+          freed += t.clear("C:\\" + r, !!c.whole);
+        }
+        cleaned.add(id);
+        const failed = c.needsAdmin ? 3 : 0;
+        results.push({ id, title: c.title, freed, files, failed, error: null });
+      }
+      return { results, stats: tree ? tree.stats() : null };
+    },
+    async relaunchAsAdmin() {
+      throw new Error("No modo demonstração não é possível reiniciar como administrador.");
+    },
+    async onCleanupProgress(cb) {
+      cleanupCbs.add(cb);
+      return () => cleanupCbs.delete(cb);
     },
     async onProgress(cb) {
       progressCbs.add(cb);
