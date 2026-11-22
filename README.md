@@ -24,6 +24,19 @@ visual. Here area is proportional to size:
   WSL/Docker disks, `WinSxS` (with the right DISM command) and others.
 - **Delete** to the Recycle Bin or permanently, with confirmation. The tree and totals update with no new scan.
 - **Rescan** a single folder (⟳) after cleaning it by other means.
+- **Limpeza** tab (or "🧹 Limpeza recomendada" in the sidebar): shows what takes up space and
+  **what can and cannot be deleted**, in three groups, and runs the cleanup of the items you tick:
+  - **Can delete**: user and Windows temp files, Windows Update cache, crash dumps,
+    shader cache, browser cache (does not touch passwords/history) and the Recycle Bin.
+  - **Review before deleting**: development caches (npm, NuGet, Gradle…), old NVIDIA
+    installers, Downloads, `Windows.old` and `hiberfil.sys`.
+  - **Do not delete by hand**: `WinSxS`, `Windows\Installer`, `pagefile.sys`, restore points and
+    `Program Files`, each with the official tool (Disk Cleanup, DISM, System Protection…).
+
+  The cleanup only deletes the **contents** of the ticked folders, permanently. Files in use are skipped, and
+  temp files modified in the last 24 h are kept. The frontend only sends the item ids; the paths
+  are resolved in the backend. Commands such as `DISM` and `powercfg /h off` run as administrator
+  (with the UAC prompt) from a fixed allow-list. Afterwards the map and the free space are updated.
 - Open any item in Explorer.
 - Protections: the backend refuses to delete drive roots and anything inside `%SystemRoot%` (`C:\Windows`).
 - Symlinks/junctions are ignored (no double counting or loops). OneDrive "online-only"
