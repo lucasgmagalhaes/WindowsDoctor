@@ -1,6 +1,6 @@
 import type { FileInfo } from "../api";
 import { formatBytes } from "../format";
-import { hintFor, isProtected } from "../hints";
+import { LEVEL_INFO, hintFor, isProtected } from "../hints";
 
 interface Props {
   files: FileInfo[];
@@ -34,7 +34,8 @@ export function TopFiles({ files, onReveal, onDelete }: Props) {
                 <div>
                   <strong>{name}</strong>
                   {hint && (
-                    <span className={`badge ${hint.level}`} title={hint.detail}>
+                    <span className={`badge ${hint.level}`} title={`${LEVEL_INFO[hint.level].label}: ${hint.detail}`}>
+                      <span aria-hidden>{LEVEL_INFO[hint.level].icon} </span>
                       {hint.title}
                     </span>
                   )}

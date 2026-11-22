@@ -57,6 +57,13 @@ const RULES: Rule[] = [
     detail: "Imagens de instalação geralmente podem ser baixadas de novo." },
 ];
 
+/** How each level is shown to the user (same classification as the Limpeza tab). */
+export const LEVEL_INFO: Record<HintLevel, { icon: string; label: string }> = {
+  safe: { icon: "✓", label: "Pode apagar" },
+  review: { icon: "!", label: "Revise antes de apagar" },
+  system: { icon: "⛔", label: "Não apague manualmente" },
+};
+
 export function hintFor(path: string): Hint | null {
   const p = path.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
   for (const r of RULES) if (r.test.test(p)) return r;
