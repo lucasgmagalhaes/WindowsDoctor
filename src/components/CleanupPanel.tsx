@@ -296,7 +296,7 @@ function CleanupRow({
             <details>
               <summary className="small">
                 {item.paths.length === 1 ? "1 local" : `${item.paths.length} locais`}
-                {item.fileCount != null && ` · ${formatCount(item.fileCount)} arquivos`}
+                {item.fileCount != null && ` · ${formatCount(item.fileCount)} ${item.fileCount === 1 ? "arquivo" : "arquivos"}`}
               </summary>
               <ul className="path-list">
                 {item.paths.map((p) => (
