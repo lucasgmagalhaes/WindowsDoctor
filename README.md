@@ -22,6 +22,23 @@ visual. Here area is proportional to size:
 - **Cleanup hints** for known space hogs: `Windows.old`, `$Recycle.Bin`,
   `hiberfil.sys`, `Temp`, Windows Update cache, `node_modules`, package caches (npm, gradle, nuget…),
   WSL/Docker disks, `WinSxS` (with the right DISM command) and others.
+- **Automatic cleanup** (sidebar → *Limpeza automática*): finds and deletes, in one go, what Windows and
+  apps recreate on their own. It measures each category first and lets you pick:
+  - System: user and Windows `Temp` (files newer than 24 h are kept), Windows Update cache (the service is
+    stopped while cleaning), Delivery Optimization, crash dumps/WER reports, CBS/DISM/Panther logs, thumbnail
+    and icon cache, Recycle Bin.
+  - Browsers (Chrome, Edge, Brave, Opera, Vivaldi, Firefox): caches only; history, passwords and logins stay.
+  - Apps: Discord, VS Code, Slack, Teams, Spotify… caches; DirectX/NVIDIA/AMD/Intel/Steam shader caches.
+  - Installers: leftovers of NVIDIA/AMD/Intel driver installers.
+  - Development: npm, Yarn, pnpm, pip, NuGet HTTP, Go and Cargo caches.
+  - Off by default (marked *revisar*): `Windows.old` and other previous Windows installs, `DISM
+    /StartComponentCleanup` (WinSxS), installers (`.exe`/`.msi`/`.msix`) in Downloads, and local package
+    repositories (Gradle, NuGet, Maven, pnpm store).
+
+  Deletion is permanent; files in use are skipped and reported. System categories need admin; the dialog
+  has a button to restart the app elevated. The list of locations is fixed in `src-tauri/src/cleanup.rs`;
+  the frontend only sends category ids. After cleaning, the affected folders of the current scan are
+  updated without a full rescan.
 - **Delete** to the Recycle Bin or permanently, with confirmation. The tree and totals update with no new scan.
 - **Rescan** a single folder (⟳) after cleaning it by other means.
 - Open any item in Explorer.

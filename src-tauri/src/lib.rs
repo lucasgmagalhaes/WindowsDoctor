@@ -1,3 +1,5 @@
+mod cleanup;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -369,6 +371,78 @@ async fn delete_node(
     .map_err(|e| e.to_string())?
 }
 
+// ---------------------------------------------------------------- limpeza automática
+
+#[tauri::command]
+async fn cleanup_analyze() -> CmdResult<cleanup::CleanupReport> {
+    tauri::async_runtime::spawn_blocking(cleanup::analyze)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanupProgress {
+    index: usize,
+    total: usize,
+    title: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanupRunResult {
+    results: Vec<cleanup::CategoryResult>,
+    /// Totais da varredura atual depois de atualizada (None sem varredura).
+    stats: Option<ScanStats>,
+}
+
+/// Limpa as categorias informadas e atualiza a árvore da varredura atual nas
+/// pastas afetadas. Emite `cleanup-progress` antes de cada categoria.
+#[tauri::command]
+async fn cleanup_run(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    ids: Vec<String>,
+) -> CmdResult<CleanupRunResult> {
+    if state.progress.lock().map_err(|e| e.to_string())?.is_some() {
+        return Err("aguarde a varredura em andamento terminar".into());
+    }
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let total = ids.len();
+        let (results, touched) = cleanup::run(&ids, |index, title| {
+            let _ = app.emit("cleanup-progress", CleanupProgress { index, total, title: title.into() });
+        });
+        let mut guard = state.tree.lock().map_err(|e| e.to_string())?;
+        if let Some(t) = guard.as_mut() {
+            for path in touched {
+                let Some(id) = t.find(&path) else { continue };
+                if !path.exists() {
+                    t.remove_path(&path);
+                } else if t.kind(id) == Some(NodeKind::Dir) {
+                    if let Ok(sub) = diskscan::scan(&path, &ScanOptions::default(), &Progress::new()) {
+                        t.replace_subtree(id, sub);
+                    }
+                }
+            }
+        }
+        Ok(CleanupRunResult {
+            results,
+            stats: guard.as_ref().map(|t| t.stats()),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Abre uma nova instância do app elevada (UAC) e fecha esta.
+#[tauri::command]
+fn relaunch_as_admin(app: AppHandle) -> CmdResult<()> {
+    cleanup::relaunch_elevated()?;
+    app.exit(0);
+    Ok(())
+}
+
 // ---------------------------------------------------------------- app
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -388,6 +462,9 @@ pub fn run() {
             find_path,
             reveal_path,
             delete_node,
+            cleanup_analyze,
+            cleanup_run,
+            relaunch_as_admin,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");
