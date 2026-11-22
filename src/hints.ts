@@ -16,13 +16,13 @@ interface Rule extends Hint {
 // Testadas contra o caminho completo em minúsculas, com "\" como separador.
 const RULES: Rule[] = [
   { test: /\\windows\\winsxs$/, level: "system", title: "Componentes do Windows",
-    detail: "Não apague manualmente. Rode como administrador: Dism /Online /Cleanup-Image /StartComponentCleanup" },
+    detail: "Não apague manualmente. Use \"Limpeza de componentes (WinSxS)\" na Limpeza automática, que roda o DISM com segurança." },
   { test: /\\windows\\softwaredistribution\\download$/, level: "safe", title: "Cache do Windows Update",
     detail: "Pode ser limpo pela Limpeza de Disco (cleanmgr) > Limpar arquivos do sistema." },
   { test: /\\windows\\installer$/, level: "system", title: "Instaladores MSI",
     detail: "Não apague: necessário para desinstalar/reparar programas." },
-  { test: /^[a-z]:\\windows\.old$/, level: "safe", title: "Instalação anterior do Windows",
-    detail: "Remova pela Limpeza de Disco > Limpar arquivos do sistema > Instalações anteriores do Windows." },
+  { test: /^[a-z]:\\windows\.old$/, level: "review", title: "Instalação anterior do Windows",
+    detail: "Remova pela Limpeza automática (\"Instalações anteriores do Windows\"). Você perde a opção de voltar à versão anterior." },
   { test: /^[a-z]:\\\$recycle\.bin$/, level: "safe", title: "Lixeira",
     detail: "Esvazie a Lixeira para liberar este espaço." },
   { test: /^[a-z]:\\hiberfil\.sys$/, level: "review", title: "Arquivo de hibernação",
@@ -35,16 +35,24 @@ const RULES: Rule[] = [
     detail: "Seguro apagar o conteúdo (alguns arquivos em uso podem falhar)." },
   { test: /\\appdata\\local\\crashdumps$|\\windows\\minidump$|\\memory\.dmp$/, level: "safe", title: "Dumps de erro",
     detail: "Relatórios de travamento; seguro apagar." },
-  { test: /\\node_modules$/, level: "safe", title: "Dependências npm",
+  { test: /\\node_modules$/, level: "review", title: "Dependências npm",
     detail: "Recriável com 'npm install' no projeto." },
   { test: /\\(target|build|\.next|dist|obj|bin\\debug|bin\\release)$/, level: "review", title: "Saída de build",
     detail: "Normalmente recriável compilando o projeto de novo." },
-  { test: /\\(\.gradle\\caches|\.m2\\repository|\.nuget\\packages|npm-cache|\.cargo\\registry|pip\\cache|yarn\\cache|\.pnpm-store)$/,
+  // Same split as the "Limpeza automática" categories (dev-caches / dev-packages).
+  { test: /\\(npm-cache|\.cargo\\registry|pip\\cache|yarn\\cache|go-build)$/,
     level: "safe", title: "Cache de pacotes", detail: "Baixado de novo quando necessário." },
+  { test: /\\(\.gradle\\caches|\.m2\\repository|\.nuget\\packages|\.pnpm-store)$/,
+    level: "review", title: "Pacotes baixados",
+    detail: "Repositórios locais de dependências; os projetos baixam tudo de novo no próximo build (pode demorar)." },
   { test: /\\appdata\\local\\docker\\wsl|\\ext4\.vhdx$/, level: "review", title: "Disco virtual WSL/Docker",
     detail: "Não apague: rode 'docker system prune' e compacte o .vhdx (Optimize-VHD / diskpart compact vdisk)." },
-  { test: /\\nvidia\\dxcache$|\\nvidia corporation\\installer2$/, level: "safe", title: "Cache/instaladores NVIDIA",
+  { test: /\\nvidia\\dxcache$/, level: "safe", title: "Cache de shaders NVIDIA",
     detail: "Seguro apagar; recriado conforme necessário." },
+  { test: /\\nvidia corporation\\installer2$/, level: "safe", title: "Restos de instaladores NVIDIA",
+    detail: "Pacotes extraídos pelo instalador do driver; podem ser apagados (Limpeza automática)." },
+  { test: /^[a-z]:\\program files( \(x86\))?$/, level: "system", title: "Programas instalados",
+    detail: "Não apague pastas de programas: desinstale em Configurações > Aplicativos." },
   { test: /\\programdata\\package cache$/, level: "review", title: "Cache de instaladores",
     detail: "Usado para reparar/desinstalar programas. Apagar pode impedir desinstalações limpas." },
   { test: /\\(cache|cache2|code cache|gpucache|service worker)$/, level: "safe", title: "Cache",
@@ -56,6 +64,13 @@ const RULES: Rule[] = [
   { test: /\.(iso|img|vhd)$/, level: "review", title: "Imagem de disco",
     detail: "Imagens de instalação geralmente podem ser baixadas de novo." },
 ];
+
+/** How each level is shown to the user (same classification as the Limpeza tab). */
+export const LEVEL_INFO: Record<HintLevel, { icon: string; label: string }> = {
+  safe: { icon: "✓", label: "Pode apagar" },
+  review: { icon: "!", label: "Revise antes de apagar" },
+  system: { icon: "⛔", label: "Não apague manualmente" },
+};
 
 export function hintFor(path: string): Hint | null {
   const p = path.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();

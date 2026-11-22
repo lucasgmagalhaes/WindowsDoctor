@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Api, CleanupCategory, CleanupProgress, CleanupReport, CleanupRunResult } from "../api";
 import { formatBytes, formatCount } from "../format";
+import { DO_NOT_DELETE } from "../doNotDelete";
 
 type Phase =
   | { kind: "analyzing" }
@@ -194,6 +195,26 @@ export function CleanupDialog({
                   </ul>
                 </section>
               ))}
+              <section className="cleanup-donot" aria-label="Não apague manualmente">
+                <h4>⛔ Não apague manualmente</h4>
+                <p className="muted small">
+                  Ocupam muito espaço, mas apagar à mão quebra o Windows ou programas. Veja como reduzir com segurança:
+                </p>
+                <ul>
+                  {DO_NOT_DELETE.map((d) => (
+                    <li key={d.title} className="cleanup-item">
+                      <div className="donot-head">
+                        <span className="cleanup-title">{d.title}</span>
+                        <code className="small">{d.where}</code>
+                      </div>
+                      <div className="cleanup-detail muted small">{d.why}</div>
+                      <div className="cleanup-detail small">
+                        <strong>Em vez disso:</strong> {d.instead}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             </div>
             <div className="dialog-actions">
               <button className="btn" onClick={analyze}>

@@ -1,7 +1,7 @@
 import type { NodeView } from "../api";
 import { PALETTE, NEUTRAL, isRepeatClick } from "../chartUtils";
 import { formatBytes, formatCount, formatPercent, joinPath, nodeLabel } from "../format";
-import { hintFor, isProtected } from "../hints";
+import { LEVEL_INFO, hintFor, isProtected } from "../hints";
 
 interface Props {
   items: NodeView[];
@@ -48,7 +48,8 @@ export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, o
               </span>
               {it.error && <span className="badge warn" title="Sem permissão para ler parte desta pasta">sem acesso</span>}
               {hint && (
-                <span className={`badge ${hint.level}`} title={hint.detail}>
+                <span className={`badge ${hint.level}`} title={`${LEVEL_INFO[hint.level].label}: ${hint.detail}`}>
+                  <span aria-hidden>{LEVEL_INFO[hint.level].icon} </span>
                   {hint.title}
                 </span>
               )}
@@ -75,8 +76,12 @@ export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, o
                   )}
                   <button
                     className="icon-btn danger"
-                    title={isProtected(path) ? "Protegido: pasta do sistema" : "Excluir"}
-                    disabled={isProtected(path)}
+                    title={
+                      isProtected(path) || hint?.level === "system"
+                        ? "Não apague manualmente: veja a aba Limpeza"
+                        : "Excluir"
+                    }
+                    disabled={isProtected(path) || hint?.level === "system"}
                     onClick={() => onDelete({ id: it.id!, path, size: it.size, isDir: it.kind === "dir" })}
                   >
                     🗑

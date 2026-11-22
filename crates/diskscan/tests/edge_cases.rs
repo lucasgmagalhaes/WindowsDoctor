@@ -54,7 +54,11 @@ fn empty_root() {
 #[test]
 fn unicode_and_special_names() {
     let d = tempfile::tempdir().unwrap();
-    let names = ["ação çã", "日本語", "emoji 🎉", "com espaço ", "a,b;c", ".oculto"];
+    let mut names = vec!["ação çã", "日本語", "emoji 🎉", "com espaço", "a,b;c", ".oculto"];
+    // Windows does not allow names ending in a space or a dot.
+    if cfg!(unix) {
+        names.extend(["espaço no fim ", "ponto no fim."]);
+    }
     for (i, n) in names.iter().enumerate() {
         write(&d.path().join(n).join("f.bin"), 100 * (i + 1));
     }
