@@ -1,455 +1,868 @@
-//! Catalogue of locations Windows (and common programs) fill with
-//! data, classified by what can be deleted:
+//! Automatic cleanup: known folders and files that Windows and common apps
+//! recreate on their own (temporary files, caches, crash dumps, leftovers of
+//! updates and installers…).
 //!
-//! - `Safe`: temporary files and caches; the app can clean them;
-//! - `Review`: deletable, but with consequences (re-download, losing
-//!   the option to roll back Windows); the app cleans them only if the user ticks them;
-//! - `System`: never delete by hand; we point to the official tool.
-//!
-//! Paths are always resolved here, in the backend: the frontend only sends
-//! the ids of the chosen items, so it can never ask to clean an arbitrary path.
+//! The list is fixed in code and built from environment variables, so the
+//! frontend only ever sends category ids, never paths.
 
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-use diskscan::{clean_dir_contents, measure, CleanReport};
+use rayon::prelude::*;
 use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// Temporary files newer than this are kept: an installer that is running
+/// right now may still need them.
+const TEMP_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Level {
+    /// Recreated automatically; nothing is lost.
     Safe,
+    /// Safe in general, but has a cost (re-download, slower first start, no
+    /// way back to the previous Windows version…). Off by default.
     Review,
-    System,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Action {
-    /// Delete the contents of `paths`.
-    Clean,
-    /// Empty the Recycle Bin of every drive.
+#[derive(Clone)]
+enum Target {
+    /// Deletes everything inside the folder and keeps the folder itself.
+    Contents { dir: PathBuf, min_age: Option<Duration> },
+    /// Deletes the folder itself. `take_ownership` runs takeown/icacls first
+    /// (folders owned by TrustedInstaller, e.g. Windows.old).
+    WholeDir { dir: PathBuf, take_ownership: bool },
+    /// Files directly inside `dir` whose lower-case name matches `pred`.
+    Files { dir: PathBuf, pred: fn(&str) -> bool },
+    File(PathBuf),
     RecycleBin,
-    /// Only guidance: the user acts through the indicated tool.
-    Manual,
+    /// `Dism /Online /Cleanup-Image /StartComponentCleanup` (WinSxS).
+    Dism,
 }
 
-/// System tools the frontend may open (allow-list).
-pub const TOOLS: [(&str, &str); 4] = [
-    ("cleanmgr", "cleanmgr.exe"),
-    ("systemProtection", "SystemPropertiesProtection.exe"),
-    ("performance", "SystemPropertiesPerformance.exe"),
-    ("storageSense", "ms-settings:storagesense"),
-];
+impl Target {
+    fn path(&self) -> Option<&Path> {
+        match self {
+            Target::Contents { dir, .. } | Target::WholeDir { dir, .. } | Target::Files { dir, .. } => Some(dir),
+            Target::File(p) => Some(p),
+            Target::RecycleBin | Target::Dism => None,
+        }
+    }
 
-/// Commands that can be run as administrator (allow-list).
-pub const ELEVATED: [(&str, &str); 2] = [
-    ("dism", "Dism.exe /Online /Cleanup-Image /StartComponentCleanup"),
-    ("hibernateOff", "powercfg.exe /h off"),
-];
+    fn exists(&self) -> bool {
+        match self {
+            Target::RecycleBin | Target::Dism => cfg!(windows),
+            _ => self.path().is_some_and(|p| p.exists()),
+        }
+    }
+}
 
-struct Rule {
+struct Def {
     id: &'static str,
+    group: &'static str,
     title: &'static str,
-    description: &'static str,
+    detail: &'static str,
     level: Level,
-    action: Action,
-    paths: Vec<PathBuf>,
-    /// Files modified more recently than this are kept.
-    min_age_hours: u64,
-    needs_admin: bool,
-    /// Whether to compute the size (WinSxS takes long and the number is misleading due to hard links).
-    measure: bool,
-    note: Option<&'static str>,
-    tool: Option<&'static str>,
-    command: Option<&'static str>,
+    admin: bool,
+    /// Services stopped while cleaning (they keep the files open) and
+    /// started again afterwards.
+    services: &'static [&'static str],
+    targets: Vec<Target>,
 }
 
-impl Rule {
-    fn new(id: &'static str, level: Level, action: Action, title: &'static str, description: &'static str) -> Self {
-        Self {
-            id,
-            title,
-            description,
-            level,
-            action,
-            paths: Vec::new(),
-            min_age_hours: 0,
-            needs_admin: false,
-            measure: true,
-            note: None,
-            tool: None,
-            command: None,
-        }
-    }
-    fn paths(mut self, p: impl IntoIterator<Item = Option<PathBuf>>) -> Self {
-        self.paths = p.into_iter().flatten().filter(|p| p.exists()).collect();
-        self.paths.dedup();
-        self
-    }
-    fn min_age_hours(mut self, h: u64) -> Self {
-        self.min_age_hours = h;
-        self
-    }
-    fn admin(mut self) -> Self {
-        self.needs_admin = true;
-        self
-    }
-    fn no_measure(mut self) -> Self {
-        self.measure = false;
-        self
-    }
-    fn note(mut self, n: &'static str) -> Self {
-        self.note = Some(n);
-        self
-    }
-    fn tool(mut self, t: &'static str) -> Self {
-        self.tool = Some(t);
-        self
-    }
-    fn command(mut self, c: &'static str) -> Self {
-        self.command = Some(c);
-        self
-    }
-    fn is_cleanable(&self) -> bool {
-        self.level != Level::System && self.action != Action::Manual
-    }
-}
-
-fn env(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key).map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
-}
-
-fn join(base: &Option<PathBuf>, rel: &str) -> Option<PathBuf> {
-    base.as_ref().map(|b| b.join(rel))
-}
-
-/// `base\<each profile>\<sub>` — browser caches live per profile.
-fn per_profile(base: Option<PathBuf>, subs: &[&str]) -> Vec<Option<PathBuf>> {
-    let Some(base) = base else { return Vec::new() };
-    let Ok(entries) = std::fs::read_dir(&base) else { return Vec::new() };
-    let mut out = Vec::new();
-    for e in entries.flatten() {
-        if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            for s in subs {
-                out.push(Some(e.path().join(s)));
-            }
-        }
-    }
-    out
-}
-
-fn rules() -> Vec<Rule> {
-    use Action::*;
-    use Level::*;
-
-    let sys = env("SystemRoot").or_else(|| Some(PathBuf::from(r"C:\Windows")));
-    let drive = env("SystemDrive")
-        .map(|d| PathBuf::from(format!("{}\\", d.display())))
-        .or_else(|| Some(PathBuf::from(r"C:\")));
-    let local = env("LOCALAPPDATA");
-    let roaming = env("APPDATA");
-    let home = env("USERPROFILE");
-    let pdata = env("ProgramData");
-    let pf = env("ProgramFiles");
-
-    let mut browser = Vec::new();
-    for base in [
-        r"Google\Chrome\User Data",
-        r"Microsoft\Edge\User Data",
-        r"BraveSoftware\Brave-Browser\User Data",
-    ] {
-        browser.extend(per_profile(join(&local, base), &["Cache", "Code Cache", "GPUCache"]));
-    }
-    browser.extend(per_profile(join(&local, r"Mozilla\Firefox\Profiles"), &["cache2"]));
-
-    vec![
-        // ------------------------------------------------------------ can delete
-        Rule::new("userTemp", Safe, Clean, "Arquivos temporários do usuário",
-            "Arquivos que instaladores e programas deixam para trás na pasta TEMP.")
-            .paths([Some(std::env::temp_dir())])
-            .min_age_hours(24)
-            .note("Arquivos modificados nas últimas 24 horas são mantidos (podem estar em uso)."),
-        Rule::new("windowsTemp", Safe, Clean, "Arquivos temporários do Windows",
-            "Temporários criados pelo sistema e por serviços.")
-            .paths([join(&sys, "Temp")])
-            .min_age_hours(24)
-            .admin(),
-        Rule::new("updateCache", Safe, Clean, "Cache do Windows Update",
-            "Atualizações já baixadas. O Windows baixa de novo se precisar.")
-            .paths([join(&sys, r"SoftwareDistribution\Download")])
-            .min_age_hours(24)
-            .admin()
-            .note("Evite durante uma atualização em andamento."),
-        Rule::new("crashDumps", Safe, Clean, "Relatórios e dumps de erro",
-            "Despejos de memória e relatórios de travamento de programas e do Windows.")
-            .paths([
-                join(&local, "CrashDumps"),
-                join(&sys, "Minidump"),
-                join(&sys, "LiveKernelReports"),
-                join(&local, r"Microsoft\Windows\WER\ReportArchive"),
-                join(&local, r"Microsoft\Windows\WER\ReportQueue"),
-                join(&pdata, r"Microsoft\Windows\WER\ReportArchive"),
-                join(&pdata, r"Microsoft\Windows\WER\ReportQueue"),
-            ]),
-        Rule::new("shaderCache", Safe, Clean, "Cache de shaders (placa de vídeo)",
-            "Shaders compilados por jogos e pelo DirectX/OpenGL. São recriados automaticamente.")
-            .paths([
-                join(&local, "D3DSCache"),
-                join(&local, r"NVIDIA\DXCache"),
-                join(&local, r"NVIDIA\GLCache"),
-                join(&local, r"AMD\DxCache"),
-                join(&local, r"AMD\GLCache"),
-            ])
-            .note("Jogos podem demorar um pouco mais para abrir na primeira vez."),
-        Rule::new("browserCache", Safe, Clean, "Cache dos navegadores",
-            "Cópias de páginas e imagens do Chrome, Edge, Brave e Firefox. Não apaga senhas, histórico nem favoritos.")
-            .paths(browser)
-            .note("Feche os navegadores antes; arquivos em uso são ignorados."),
-        Rule::new("recycleBin", Safe, RecycleBin, "Lixeira",
-            "Itens já excluídos. Esvaziar libera o espaço de verdade.")
-            .note("Não é possível recuperar os itens depois."),
-        // ------------------------------------------------------------ review
-        Rule::new("devCaches", Review, Clean, "Caches de ferramentas de programação",
-            "Pacotes baixados por npm, Yarn, pip, NuGet, Gradle, Maven e Cargo.")
-            .paths([
-                join(&local, "npm-cache"),
-                join(&roaming, "npm-cache"),
-                join(&local, r"Yarn\Cache"),
-                join(&local, r"pip\Cache"),
-                join(&home, r".nuget\packages"),
-                join(&home, r".gradle\caches"),
-                join(&home, r".m2\repository"),
-                join(&home, r".cargo\registry\cache"),
-            ])
-            .note("Serão baixados de novo (exige internet) na próxima compilação dos projetos."),
-        Rule::new("nvidiaInstaller", Review, Clean, "Instaladores antigos de driver NVIDIA",
-            "Cópias dos instaladores de drivers de vídeo já instalados.")
-            .paths([join(&pf, r"NVIDIA Corporation\Installer2")])
-            .admin(),
-        Rule::new("downloads", Review, Manual, "Pasta Downloads",
-            "Costuma acumular instaladores, ISOs e arquivos esquecidos. Só você sabe o que ainda é útil.")
-            .paths([join(&home, "Downloads")])
-            .note("Revise e apague pela aba Explorar."),
-        Rule::new("windowsOld", Review, Manual, "Instalação anterior do Windows (Windows.old)",
-            "Sobra de uma atualização do Windows. Removê-la elimina a opção de voltar à versão anterior.")
-            .paths([join(&drive, "Windows.old")])
-            .tool("cleanmgr")
-            .note("Na Limpeza de Disco, clique em \"Limpar arquivos do sistema\" e marque \"Instalações anteriores do Windows\"."),
-        Rule::new("hibernation", Review, Manual, "Arquivo de hibernação (hiberfil.sys)",
-            "Usado pela hibernação e pela Inicialização Rápida. Só desative se não usa esses recursos.")
-            .paths([join(&drive, "hiberfil.sys")])
-            .command("hibernateOff"),
-        // ------------------------------------------------------------ do not delete
-        Rule::new("winsxs", System, Manual, "Componentes do Windows (WinSxS)",
-            "Bibliotecas usadas pelo sistema. Apagar à mão quebra o Windows. O DISM remove versões antigas com segurança.")
-            .paths([join(&sys, "WinSxS")])
-            .no_measure()
-            .command("dism")
-            .note("O tamanho mostrado pelo Explorer é exagerado: muitos arquivos são links para outras pastas do sistema."),
-        Rule::new("installer", System, Manual, "Instaladores de programas (Windows\\Installer)",
-            "O Windows usa estes arquivos para reparar, atualizar e desinstalar programas. Nunca apague.")
-            .paths([join(&sys, "Installer")]),
-        Rule::new("pagefile", System, Manual, "Memória virtual (pagefile.sys / swapfile.sys)",
-            "Extensão da memória RAM no disco. Apagar não é possível; o tamanho pode ser ajustado.")
-            .paths([join(&drive, "pagefile.sys"), join(&drive, "swapfile.sys")])
-            .tool("performance")
-            .note("Em Desempenho > Avançado > Memória virtual."),
-        Rule::new("restorePoints", System, Manual, "Pontos de restauração (System Volume Information)",
-            "Cópias de segurança usadas para desfazer alterações no sistema.")
-            .paths([join(&drive, "System Volume Information")])
-            .tool("systemProtection")
-            .note("Em Proteção do Sistema > Configurar é possível excluir pontos antigos ou limitar o espaço."),
-        Rule::new("programFiles", System, Manual, "Programas instalados (Program Files)",
-            "Apagar pastas de programas deixa restos no registro e pode quebrar outros programas.")
-            .paths([pf.clone(), env("ProgramFiles(x86)")])
-            .no_measure()
-            .tool("storageSense")
-            .note("Desinstale em Configurações > Aplicativos."),
-    ]
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CleanupItem {
+pub struct CategoryInfo {
     id: &'static str,
+    group: &'static str,
     title: &'static str,
-    description: &'static str,
+    detail: &'static str,
     level: Level,
-    action: Action,
-    paths: Vec<String>,
+    needs_admin: bool,
+    /// None when the size cannot be known in advance (DISM).
     size: Option<u64>,
-    file_count: Option<u64>,
-    min_age_hours: u64,
-    needs_admin: bool,
-    note: Option<&'static str>,
-    tool: Option<&'static str>,
-    command_id: Option<&'static str>,
-    /// Text of the command, to show the user before running it.
-    command: Option<&'static str>,
+    files: u64,
+    paths: Vec<String>,
 }
 
-/// Lists the catalogue items that exist on this computer, with their size.
-pub fn analyze() -> Vec<CleanupItem> {
-    rules()
-        .into_iter()
-        .filter(|r| !r.paths.is_empty() || r.action == Action::RecycleBin)
-        .filter(|r| r.action != Action::RecycleBin || recycle_bin::supported())
-        .map(|r| {
-            let (size, files) = if r.action == Action::RecycleBin {
-                recycle_bin::query().map_or((None, None), |(s, n)| (Some(s), Some(n)))
-            } else if r.measure {
-                let mut total: Option<(u64, u64)> = None;
-                for p in &r.paths {
-                    if let Some((s, n)) = measure(p) {
-                        let t = total.get_or_insert((0, 0));
-                        t.0 += s;
-                        t.1 += n;
-                    }
-                }
-                (total.map(|t| t.0), total.map(|t| t.1))
-            } else {
-                (None, None)
-            };
-            CleanupItem {
-                id: r.id,
-                title: r.title,
-                description: r.description,
-                level: r.level,
-                action: r.action,
-                paths: r.paths.iter().map(|p| p.to_string_lossy().into_owned()).collect(),
-                size,
-                file_count: files,
-                min_age_hours: r.min_age_hours,
-                needs_admin: r.needs_admin,
-                note: r.note,
-                tool: r.tool,
-                command_id: r.command,
-                command: r.command.and_then(|c| ELEVATED.iter().find(|e| e.0 == c).map(|e| e.1)),
-            }
-        })
-        .collect()
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CleanupResult {
-    pub id: String,
-    pub title: String,
-    pub report: CleanReport,
-    pub error: Option<String>,
+pub struct CleanupReport {
+    is_admin: bool,
+    categories: Vec<CategoryInfo>,
 }
 
-/// Runs the cleanup of the chosen items. Unknown ids and items that the
-/// app does not clean (`System`/`Manual`) are rejected with an error per item.
-/// Also returns the paths touched, so the caller can update the tree.
-pub fn run(ids: &[String]) -> (Vec<CleanupResult>, Vec<PathBuf>) {
-    let all = rules();
-    let mut results = Vec::new();
-    let mut touched = Vec::new();
-    for id in ids {
-        let Some(rule) = all.iter().find(|r| r.id == id) else {
-            results.push(CleanupResult {
-                id: id.clone(),
-                title: id.clone(),
-                report: CleanReport::default(),
-                error: Some("item desconhecido".into()),
-            });
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryResult {
+    id: String,
+    title: &'static str,
+    freed: u64,
+    files: u64,
+    /// Items that could not be deleted (in use, no permission…).
+    failed: u64,
+    error: Option<String>,
+}
+
+// ---------------------------------------------------------------- catalogue
+
+fn env_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// Extra guard against a broken environment variable pointing the cleanup at
+/// a drive root, the Windows folder or the user profile.
+fn sane(dir: &Path) -> bool {
+    if !dir.is_absolute() || dir.components().count() < 3 {
+        return false;
+    }
+    let lower = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
+    let d = lower(dir);
+    ["SystemRoot", "USERPROFILE", "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "LOCALAPPDATA", "APPDATA"]
+        .iter()
+        .filter_map(|v| env_path(v))
+        .all(|p| lower(&p) != d)
+}
+
+fn is_temp_dir(dir: &Path) -> bool {
+    dir.file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .is_some_and(|n| n == "temp" || n == "tmp")
+}
+
+/// Cache folders of a Chromium browser, for every profile in `user_data`.
+fn chromium_caches(user_data: PathBuf, out: &mut Vec<Target>) {
+    const PER_PROFILE: [&str; 5] = [
+        "Cache",
+        "Code Cache",
+        "GPUCache",
+        r"Service Worker\CacheStorage",
+        r"Service Worker\ScriptCache",
+    ];
+    const SHARED: [&str; 3] = ["ShaderCache", "GrShaderCache", "GraphiteDawnCache"];
+    for s in SHARED {
+        out.push(contents(user_data.join(s)));
+    }
+    let Ok(entries) = std::fs::read_dir(&user_data) else { return };
+    for e in entries.flatten() {
+        let p = e.path();
+        // A profile folder has a Preferences file (Default, Profile 1, …).
+        if p.join("Preferences").is_file() {
+            for s in PER_PROFILE {
+                out.push(contents(p.join(s)));
+            }
+        }
+    }
+    // Opera keeps the profile directly in "Opera Stable".
+    for s in PER_PROFILE {
+        out.push(contents(user_data.join(s)));
+    }
+}
+
+fn subdirs(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .map(|r| r.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
+        .unwrap_or_default()
+}
+
+fn contents(dir: PathBuf) -> Target {
+    Target::Contents { dir, min_age: None }
+}
+
+fn build_catalogue() -> Vec<Def> {
+    let local = env_path("LOCALAPPDATA");
+    let roaming = env_path("APPDATA");
+    let profile = env_path("USERPROFILE");
+    let windir = env_path("SystemRoot").or_else(|| env_path("windir"));
+    let programdata = env_path("ProgramData");
+    let pf = env_path("ProgramFiles");
+    let pf86 = env_path("ProgramFiles(x86)");
+    let sysdrive = env_path("SystemDrive").map(|d| PathBuf::from(format!("{}\\", d.display())));
+
+    let j = |base: &Option<PathBuf>, rel: &str| base.as_ref().map(|b| b.join(rel));
+    let c = |base: &Option<PathBuf>, rel: &str| j(base, rel).map(contents);
+
+    let mut defs = Vec::new();
+
+    // ---- System
+    let mut user_temp: Vec<PathBuf> = env_path("TEMP").into_iter().chain(j(&local, "Temp")).collect();
+    user_temp.dedup_by(|a, b| a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy()));
+    defs.push(Def {
+        id: "user-temp",
+        group: "Sistema",
+        title: "Arquivos temporários do usuário",
+        detail: "Pasta %TEMP%. Arquivos das últimas 24 horas são mantidos.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: user_temp
+            .into_iter()
+            .filter(|d| is_temp_dir(d))
+            .map(|dir| Target::Contents { dir, min_age: Some(TEMP_MIN_AGE) })
+            .collect(),
+    });
+    defs.push(Def {
+        id: "windows-temp",
+        group: "Sistema",
+        title: "Arquivos temporários do Windows",
+        detail: r"Pasta C:\Windows\Temp. Arquivos das últimas 24 horas são mantidos.",
+        level: Level::Safe,
+        admin: true,
+        services: &[],
+        targets: j(&windir, "Temp")
+            .map(|dir| Target::Contents { dir, min_age: Some(TEMP_MIN_AGE) })
+            .into_iter()
+            .collect(),
+    });
+    defs.push(Def {
+        id: "windows-update",
+        group: "Sistema",
+        title: "Cache do Windows Update",
+        detail: "Atualizações já baixadas/instaladas. O serviço Windows Update é parado durante a limpeza.",
+        level: Level::Safe,
+        admin: true,
+        services: &["wuauserv", "bits"],
+        targets: c(&windir, r"SoftwareDistribution\Download").into_iter().collect(),
+    });
+    defs.push(Def {
+        id: "delivery-optimization",
+        group: "Sistema",
+        title: "Otimização de Entrega",
+        detail: "Cópias de atualizações compartilhadas com outros PCs.",
+        level: Level::Safe,
+        admin: true,
+        services: &["dosvc"],
+        targets: c(
+            &windir,
+            r"ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache",
+        )
+        .into_iter()
+        .collect(),
+    });
+    defs.push(Def {
+        id: "crash-dumps",
+        group: "Sistema",
+        title: "Dumps de erro e relatórios de falha",
+        detail: "Relatórios de travamento (WER), minidumps, MEMORY.DMP e LiveKernelReports.",
+        level: Level::Safe,
+        admin: true,
+        services: &[],
+        targets: [
+            c(&local, "CrashDumps"),
+            c(&local, r"Microsoft\Windows\WER\ReportArchive"),
+            c(&local, r"Microsoft\Windows\WER\ReportQueue"),
+            c(&programdata, r"Microsoft\Windows\WER\ReportArchive"),
+            c(&programdata, r"Microsoft\Windows\WER\ReportQueue"),
+            c(&programdata, r"Microsoft\Windows\WER\Temp"),
+            c(&windir, "Minidump"),
+            c(&windir, "LiveKernelReports"),
+            j(&windir, "MEMORY.DMP").map(Target::File),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    });
+    defs.push(Def {
+        id: "windows-logs",
+        group: "Sistema",
+        title: "Logs do Windows",
+        detail: "Logs de instalação e de manutenção (CBS, DISM, Panther).",
+        level: Level::Safe,
+        admin: true,
+        services: &[],
+        targets: [c(&windir, r"Logs\CBS"), c(&windir, r"Logs\DISM"), c(&windir, r"Panther")]
+            .into_iter()
+            .flatten()
+            .collect(),
+    });
+    defs.push(Def {
+        id: "thumbnails",
+        group: "Sistema",
+        title: "Cache de miniaturas e ícones",
+        detail: "Recriado pelo Explorer. Arquivos em uso pelo Explorer são ignorados.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: j(&local, r"Microsoft\Windows\Explorer")
+            .map(|dir| Target::Files {
+                dir,
+                pred: |n| (n.starts_with("thumbcache_") || n.starts_with("iconcache_")) && n.ends_with(".db"),
+            })
+            .into_iter()
+            .collect(),
+    });
+    defs.push(Def {
+        id: "recycle-bin",
+        group: "Sistema",
+        title: "Lixeira",
+        detail: "Esvazia a Lixeira de todas as partições.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: vec![Target::RecycleBin],
+    });
+    defs.push(Def {
+        id: "old-windows",
+        group: "Sistema",
+        title: "Instalações anteriores do Windows",
+        detail: "Windows.old e restos de atualizações ($WINDOWS.~BT, $WINDOWS.~WS…). Depois disso não é mais \
+                 possível voltar para a versão anterior do Windows.",
+        level: Level::Review,
+        admin: true,
+        services: &[],
+        targets: ["Windows.old", "$WINDOWS.~BT", "$WINDOWS.~WS", "$GetCurrent", "ESD"]
+            .iter()
+            .filter_map(|n| j(&sysdrive, n))
+            .map(|dir| Target::WholeDir { dir, take_ownership: true })
+            .collect(),
+    });
+    defs.push(Def {
+        id: "dism",
+        group: "Sistema",
+        title: "Limpeza de componentes (WinSxS)",
+        detail: "Roda 'Dism /Online /Cleanup-Image /StartComponentCleanup', que remove versões antigas de \
+                 componentes. Pode levar vários minutos.",
+        level: Level::Review,
+        admin: true,
+        services: &[],
+        targets: vec![Target::Dism],
+    });
+
+    // ---- Browsers
+    let mut browsers = Vec::new();
+    for ud in [
+        j(&local, r"Google\Chrome\User Data"),
+        j(&local, r"Microsoft\Edge\User Data"),
+        j(&local, r"BraveSoftware\Brave-Browser\User Data"),
+        j(&local, r"Vivaldi\User Data"),
+        j(&local, r"Chromium\User Data"),
+        j(&local, r"Opera Software\Opera Stable"),
+        j(&local, r"Opera Software\Opera GX Stable"),
+        j(&roaming, r"Opera Software\Opera Stable"),
+        j(&roaming, r"Opera Software\Opera GX Stable"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        chromium_caches(ud, &mut browsers);
+    }
+    if let Some(ff) = j(&local, r"Mozilla\Firefox\Profiles") {
+        for p in subdirs(&ff) {
+            browsers.extend(["cache2", "startupCache", "thumbnails"].map(|s| contents(p.join(s))));
+        }
+    }
+    defs.push(Def {
+        id: "browsers",
+        group: "Navegadores",
+        title: "Cache dos navegadores",
+        detail: "Chrome, Edge, Brave, Opera, Vivaldi e Firefox. Histórico, senhas e logins são mantidos; \
+                 feche os navegadores antes para limpar tudo.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: browsers,
+    });
+
+    // ---- Apps
+    let mut apps = Vec::new();
+    for app in ["discord", "Code", "Slack", r"Microsoft\Teams", "Postman", "Notion", "WhatsApp"] {
+        if let Some(base) = j(&roaming, app) {
+            for s in ["Cache", "Code Cache", "GPUCache", "CachedData", r"Service Worker\CacheStorage", "logs"] {
+                apps.push(contents(base.join(s)));
+            }
+        }
+    }
+    apps.extend(
+        [
+            c(&roaming, r"Code\CachedExtensionVSIXs"),
+            c(&local, r"Spotify\Data"),
+            c(&local, r"Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\Default\Cache"),
+            c(&local, r"Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\Default\Code Cache"),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    defs.push(Def {
+        id: "app-caches",
+        group: "Aplicativos",
+        title: "Cache de aplicativos",
+        detail: "Discord, VS Code, Slack, Teams, Spotify e outros. Feche os aplicativos antes para limpar tudo.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: apps,
+    });
+    defs.push(Def {
+        id: "shader-caches",
+        group: "Aplicativos",
+        title: "Cache de shaders (DirectX, NVIDIA, AMD, Steam)",
+        detail: "Recriado pelos jogos; o primeiro carregamento depois da limpeza pode ser mais lento.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: [
+            c(&local, "D3DSCache"),
+            c(&local, r"NVIDIA\DXCache"),
+            c(&local, r"NVIDIA\GLCache"),
+            c(&local, r"NVIDIA\OptixCache"),
+            c(&local, r"AMD\DxCache"),
+            c(&local, r"AMD\DxcCache"),
+            c(&local, r"AMD\GLCache"),
+            c(&local, r"AMD\VkCache"),
+            c(&local, r"Intel\ShaderCache"),
+            c(&pf86, r"Steam\steamapps\shadercache"),
+            c(&pf86, r"Steam\appcache\httpcache"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    });
+
+    // ---- Installers
+    defs.push(Def {
+        id: "driver-installers",
+        group: "Instaladores",
+        title: "Restos de instaladores de drivers",
+        detail: r"Pacotes extraídos pelos instaladores da NVIDIA, AMD e Intel (C:\AMD, Installer2, Downloader…).",
+        level: Level::Safe,
+        admin: true,
+        services: &[],
+        targets: [
+            c(&pf, r"NVIDIA Corporation\Installer2"),
+            c(&programdata, r"NVIDIA Corporation\Downloader"),
+            c(&programdata, r"NVIDIA\Updatus"),
+            j(&sysdrive, "AMD").map(contents),
+            j(&sysdrive, "NVIDIA").map(contents),
+            j(&sysdrive, "Intel").map(contents),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    });
+    defs.push(Def {
+        id: "downloaded-installers",
+        group: "Instaladores",
+        title: "Instaladores na pasta Downloads",
+        detail: "Arquivos .exe, .msi, .msix e .appx da pasta Downloads. Revise: você pode querer guardar algum.",
+        level: Level::Review,
+        admin: false,
+        services: &[],
+        targets: j(&profile, "Downloads")
+            .map(|dir| Target::Files {
+                dir,
+                pred: |n| [".exe", ".msi", ".msix", ".msixbundle", ".appx", ".appxbundle"].iter().any(|e| n.ends_with(e)),
+            })
+            .into_iter()
+            .collect(),
+    });
+
+    // ---- Development
+    defs.push(Def {
+        id: "dev-caches",
+        group: "Desenvolvimento",
+        title: "Cache de gerenciadores de pacotes",
+        detail: "npm, Yarn, pnpm, pip, NuGet (cache HTTP), Go e Cargo. Os pacotes são baixados de novo quando necessário.",
+        level: Level::Safe,
+        admin: false,
+        services: &[],
+        targets: [
+            c(&local, "npm-cache"),
+            c(&roaming, "npm-cache"),
+            c(&local, r"Yarn\Cache"),
+            c(&local, r"pnpm-cache"),
+            c(&local, r"pip\Cache"),
+            c(&local, r"NuGet\v3-cache"),
+            c(&local, r"NuGet\plugins-cache"),
+            c(&local, "go-build"),
+            c(&profile, r".cargo\registry\cache"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    });
+    defs.push(Def {
+        id: "dev-packages",
+        group: "Desenvolvimento",
+        title: "Pacotes baixados (Gradle, NuGet, Maven, pnpm)",
+        detail: "Repositórios locais de dependências. Os projetos baixam tudo de novo no próximo build (pode demorar).",
+        level: Level::Review,
+        admin: false,
+        services: &[],
+        targets: [
+            c(&profile, r".gradle\caches"),
+            c(&profile, r".nuget\packages"),
+            c(&profile, r".m2\repository"),
+            c(&local, r"pnpm\store"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    });
+
+    for d in &mut defs {
+        d.targets.retain(|t| t.path().is_none_or(sane) && t.exists());
+    }
+    defs.retain(|d| !d.targets.is_empty());
+    defs
+}
+
+// ---------------------------------------------------------------- walk
+
+#[derive(Default)]
+struct Tally {
+    bytes: u64,
+    files: u64,
+    failed: u64,
+}
+
+fn old_enough(meta: &std::fs::Metadata, min_age: Option<Duration>) -> bool {
+    let Some(min) = min_age else { return true };
+    let newest = [meta.modified().ok(), meta.created().ok()].into_iter().flatten().max();
+    match newest.and_then(|t| SystemTime::now().duration_since(t).ok()) {
+        Some(age) => age >= min,
+        None => false,
+    }
+}
+
+fn remove_file(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            // Read-only files cannot be deleted on Windows.
+            let mut perm = std::fs::symlink_metadata(path)?.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perm.set_readonly(false);
+            std::fs::set_permissions(path, perm)?;
+            std::fs::remove_file(path)
+        }
+        r => r,
+    }
+}
+
+fn handle_file(path: &Path, meta: &std::fs::Metadata, min_age: Option<Duration>, delete: bool, t: &mut Tally) {
+    if !old_enough(meta, min_age) {
+        return;
+    }
+    if !delete || remove_file(path).is_ok() {
+        t.bytes += meta.len();
+        t.files += 1;
+    } else {
+        t.failed += 1;
+    }
+}
+
+/// Walks (and, with `delete`, empties) `dir`. Links are removed without
+/// following them.
+fn walk(dir: &Path, min_age: Option<Duration>, delete: bool, t: &mut Tally) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        t.failed += 1;
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            t.failed += 1;
             continue;
         };
-        let mut res = CleanupResult {
-            id: id.clone(),
-            title: rule.title.into(),
-            report: CleanReport::default(),
-            error: None,
-        };
-        if !rule.is_cleanable() {
-            res.error = Some("este item não é limpo automaticamente".into());
-        } else if rule.action == Action::RecycleBin {
-            match recycle_bin::empty() {
-                Ok(freed) => res.report.freed = freed,
-                Err(e) => res.error = Some(e),
+        let ft = meta.file_type();
+        if ft.is_symlink() {
+            if delete && std::fs::remove_dir(&path).or_else(|_| std::fs::remove_file(&path)).is_err() {
+                t.failed += 1;
             }
-            touched.extend(recycle_bin::folders());
+        } else if ft.is_dir() {
+            walk(&path, min_age, delete, t);
+            if delete {
+                // Fails (and is kept) when something inside could not be deleted.
+                let _ = std::fs::remove_dir(&path);
+            }
         } else {
-            let min_age = Duration::from_secs(rule.min_age_hours * 3600);
-            for p in &rule.paths {
-                res.report += clean_dir_contents(p, min_age);
-                touched.push(p.clone());
+            handle_file(&path, &meta, min_age, delete, t);
+        }
+    }
+}
+
+fn process(target: &Target, delete: bool, t: &mut Tally) -> Result<(), String> {
+    match target {
+        Target::Contents { dir, min_age } => walk(dir, *min_age, delete, t),
+        Target::WholeDir { dir, take_ownership } => {
+            if delete && *take_ownership {
+                win::take_ownership(dir);
+            }
+            walk(dir, None, delete, t);
+            if delete && std::fs::remove_dir(dir).is_err() && t.failed == 0 {
+                t.failed += 1;
             }
         }
-        results.push(res);
+        Target::Files { dir, pred } => {
+            let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                let path = e.path();
+                match std::fs::symlink_metadata(&path) {
+                    Ok(m) if m.is_file() && pred(&name) => handle_file(&path, &m, None, delete, t),
+                    _ => {}
+                }
+            }
+        }
+        Target::File(p) => {
+            if let Ok(m) = std::fs::symlink_metadata(p) {
+                handle_file(p, &m, None, delete, t);
+            }
+        }
+        Target::RecycleBin => {
+            let (size, items) = win::recycle_bin_size();
+            if delete && items > 0 {
+                win::empty_recycle_bin()?;
+            }
+            t.bytes += size;
+            t.files += items;
+        }
+        Target::Dism => {
+            if delete {
+                let before = win::free_space_of_system_drive();
+                win::run_dism()?;
+                let after = win::free_space_of_system_drive();
+                t.bytes += after.saturating_sub(before);
+            }
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------- API
+
+pub fn analyze() -> CleanupReport {
+    let categories = build_catalogue()
+        .into_par_iter()
+        .map(|d| {
+            let mut t = Tally::default();
+            for target in &d.targets {
+                let _ = process(target, false, &mut t);
+            }
+            let measurable = !d.targets.iter().any(|t| matches!(t, Target::Dism));
+            CategoryInfo {
+                id: d.id,
+                group: d.group,
+                title: d.title,
+                detail: d.detail,
+                level: d.level,
+                needs_admin: d.admin,
+                size: measurable.then_some(t.bytes),
+                files: t.files,
+                paths: d
+                    .targets
+                    .iter()
+                    .map(|t| match t {
+                        Target::RecycleBin => "Lixeira".to_string(),
+                        Target::Dism => "Dism.exe".to_string(),
+                        t => t.path().map(|p| p.display().to_string()).unwrap_or_default(),
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    CleanupReport {
+        is_admin: win::is_admin(),
+        categories,
+    }
+}
+
+/// Cleans the given categories in order. `on_start(index, title)` is called
+/// before each one. Returns the results and the paths that were touched, so
+/// the scan tree can be updated.
+pub fn run(ids: &[String], mut on_start: impl FnMut(usize, &str)) -> (Vec<CategoryResult>, Vec<PathBuf>) {
+    let defs = build_catalogue();
+    let selected: Vec<&Def> = ids.iter().filter_map(|id| defs.iter().find(|d| d.id == id)).collect();
+    let mut results = Vec::new();
+    let mut touched = Vec::new();
+    for (i, d) in selected.iter().enumerate() {
+        on_start(i, d.title);
+        let stopped: Vec<&str> = d.services.iter().copied().filter(|s| win::stop_service(s)).collect();
+        let mut t = Tally::default();
+        let mut error = None;
+        for target in &d.targets {
+            if let Err(e) = process(target, true, &mut t) {
+                error = Some(e);
+            }
+            match target {
+                Target::Files { dir, .. } => touched.push(dir.clone()),
+                Target::RecycleBin => touched.extend(win::recycle_bin_dirs()),
+                t => touched.extend(t.path().map(Path::to_path_buf)),
+            }
+        }
+        for s in stopped {
+            win::start_service(s);
+        }
+        results.push(CategoryResult {
+            id: d.id.to_string(),
+            title: d.title,
+            freed: t.bytes,
+            files: t.files,
+            failed: t.failed,
+            error,
+        });
     }
     (results, touched)
 }
 
-pub fn tool_target(tool: &str) -> Option<&'static str> {
-    TOOLS.iter().find(|t| t.0 == tool).map(|t| t.1)
+/// Starts a new elevated instance of the app (UAC prompt).
+pub fn relaunch_elevated() -> Result<(), String> {
+    win::relaunch_elevated()
 }
 
-pub fn elevated_command(id: &str) -> Option<&'static str> {
-    ELEVATED.iter().find(|e| e.0 == id).map(|e| e.1)
-}
+// ---------------------------------------------------------------- Windows
 
 #[cfg(windows)]
-mod recycle_bin {
-    use std::path::PathBuf;
+mod win {
+    use std::os::windows::process::CommandExt;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+
+    use std::os::windows::ffi::OsStrExt;
+
     use windows_sys::Win32::UI::Shell::{
-        SHEmptyRecycleBinW, SHQueryRecycleBinW, SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI, SHERB_NOSOUND,
-        SHQUERYRBINFO,
+        IsUserAnAdmin, SHEmptyRecycleBinW, SHQueryRecycleBinW, ShellExecuteW, SHERB_NOCONFIRMATION,
+        SHERB_NOPROGRESSUI, SHERB_NOSOUND, SHQUERYRBINFO,
     };
 
-    pub fn supported() -> bool {
-        true
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    fn cmd(program: &str) -> Command {
+        let mut c = Command::new(program);
+        c.creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        c
     }
 
-    /// (bytes, items) across every drive.
-    pub fn query() -> Option<(u64, u64)> {
+    pub fn is_admin() -> bool {
+        unsafe { IsUserAnAdmin() != 0 }
+    }
+
+    fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+        s.encode_wide().chain(Some(0)).collect()
+    }
+
+    pub fn relaunch_elevated() -> Result<(), String> {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let (verb, file) = (wide("runas".as_ref()), wide(exe.as_os_str()));
+        const SW_SHOWNORMAL: i32 = 1;
+        let h = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // Values up to 32 are errors (e.g. the user declined the UAC prompt).
+        if h as isize <= 32 {
+            return Err("não foi possível reiniciar como administrador".into());
+        }
+        Ok(())
+    }
+
+    pub fn recycle_bin_size() -> (u64, u64) {
         let mut info = SHQUERYRBINFO {
             cbSize: std::mem::size_of::<SHQUERYRBINFO>() as u32,
             i64Size: 0,
             i64NumItems: 0,
         };
-        // Null root = every drive.
         let hr = unsafe { SHQueryRecycleBinW(std::ptr::null(), &mut info) };
-        (hr >= 0).then(|| (info.i64Size.max(0) as u64, info.i64NumItems.max(0) as u64))
+        if hr < 0 {
+            (0, 0)
+        } else {
+            (info.i64Size.max(0) as u64, info.i64NumItems.max(0) as u64)
+        }
     }
 
-    pub fn empty() -> Result<u64, String> {
-        let before = query().map_or(0, |q| q.0);
+    pub fn empty_recycle_bin() -> Result<(), String> {
         let flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND;
         let hr = unsafe { SHEmptyRecycleBinW(std::ptr::null_mut(), std::ptr::null(), flags) };
-        // E_UNEXPECTED is returned when the Recycle Bin is already empty.
-        const E_UNEXPECTED: i32 = 0x8000_FFFFu32 as i32;
-        if hr < 0 && hr != E_UNEXPECTED {
-            return Err(format!("o Windows recusou esvaziar a Lixeira (0x{:08X})", hr as u32));
+        if hr < 0 && recycle_bin_size().1 > 0 {
+            return Err(format!("não foi possível esvaziar a Lixeira (0x{hr:08X})"));
         }
-        let after = query().map_or(0, |q| q.0);
-        Ok(before.saturating_sub(after))
+        Ok(())
     }
 
-    /// `X:\$Recycle.Bin` folders of the existing drives (to update the tree).
-    pub fn folders() -> Vec<PathBuf> {
+    pub fn recycle_bin_dirs() -> Vec<PathBuf> {
         (b'A'..=b'Z')
             .map(|l| PathBuf::from(format!("{}:\\$Recycle.Bin", l as char)))
             .filter(|p| p.exists())
             .collect()
     }
+
+    /// Returns true when the service was running and has been stopped.
+    pub fn stop_service(name: &str) -> bool {
+        cmd("net").args(["stop", name]).status().is_ok_and(|s| s.success())
+    }
+
+    pub fn start_service(name: &str) {
+        let _ = cmd("net").args(["start", name]).status();
+    }
+
+    pub fn take_ownership(dir: &Path) {
+        let d = dir.as_os_str();
+        let _ = cmd("takeown").arg("/F").arg(d).args(["/R", "/A"]).status();
+        // *S-1-5-32-544 = Administrators, whatever the system language.
+        let _ = cmd("icacls").arg(d).args(["/grant", "*S-1-5-32-544:F", "/T", "/C", "/Q"]).status();
+        let _ = cmd("attrib").args(["-R", "-S", "-H"]).arg(dir.join("*")).args(["/S", "/D"]).status();
+    }
+
+    pub fn run_dism() -> Result<(), String> {
+        let status = cmd("Dism.exe")
+            .args(["/Online", "/Cleanup-Image", "/StartComponentCleanup", "/Quiet", "/NoRestart"])
+            .status()
+            .map_err(|e| format!("falha ao executar o DISM: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("o DISM terminou com erro (código {})", status.code().unwrap_or(-1)))
+        }
+    }
+
+    pub fn free_space_of_system_drive() -> u64 {
+        let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into()).to_lowercase();
+        sysinfo::Disks::new_with_refreshed_list()
+            .list()
+            .iter()
+            .find(|d| d.mount_point().to_string_lossy().to_lowercase().starts_with(&drive))
+            .map(|d| d.available_space())
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(not(windows))]
-mod recycle_bin {
-    pub fn supported() -> bool {
+mod win {
+    use std::path::{Path, PathBuf};
+
+    pub fn is_admin() -> bool {
         false
     }
-    pub fn query() -> Option<(u64, u64)> {
-        None
-    }
-    pub fn empty() -> Result<u64, String> {
+    pub fn relaunch_elevated() -> Result<(), String> {
         Err("disponível apenas no Windows".into())
     }
-    pub fn folders() -> Vec<std::path::PathBuf> {
+    pub fn recycle_bin_size() -> (u64, u64) {
+        (0, 0)
+    }
+    pub fn empty_recycle_bin() -> Result<(), String> {
+        Err("disponível apenas no Windows".into())
+    }
+    pub fn recycle_bin_dirs() -> Vec<PathBuf> {
         Vec::new()
+    }
+    pub fn stop_service(_: &str) -> bool {
+        false
+    }
+    pub fn start_service(_: &str) {}
+    pub fn take_ownership(_: &Path) {}
+    pub fn run_dism() -> Result<(), String> {
+        Err("disponível apenas no Windows".into())
+    }
+    pub fn free_space_of_system_drive() -> u64 {
+        0
     }
 }
 
@@ -457,31 +870,86 @@ mod recycle_bin {
 mod tests {
     use super::*;
 
-    #[test]
-    fn ids_are_unique_and_actions_consistent() {
-        let rs = rules();
-        let mut ids: Vec<_> = rs.iter().map(|r| r.id).collect();
-        ids.sort();
-        ids.dedup();
-        assert_eq!(ids.len(), rs.len());
-        for r in &rs {
-            // Nothing from the system is cleaned automatically.
-            if r.level == Level::System {
-                assert!(!r.is_cleanable(), "{} must not be cleanable", r.id);
-            }
-            if let Some(t) = r.tool {
-                assert!(tool_target(t).is_some(), "unknown tool {t}");
-            }
-            if let Some(c) = r.command {
-                assert!(elevated_command(c).is_some(), "unknown command {c}");
-            }
-        }
+    fn tree() -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("a/b")).unwrap();
+        std::fs::write(d.path().join("x.tmp"), vec![0u8; 100]).unwrap();
+        std::fs::write(d.path().join("a/y.tmp"), vec![0u8; 50]).unwrap();
+        std::fs::write(d.path().join("a/b/z.tmp"), vec![0u8; 10]).unwrap();
+        d
     }
 
     #[test]
-    fn run_rejects_unknown_and_system_items() {
-        let (res, touched) = run(&["nope".into(), "winsxs".into(), "installer".into()]);
-        assert!(res.iter().all(|r| r.error.is_some() && r.report.deleted == 0));
-        assert!(touched.is_empty());
+    fn measures_without_deleting() {
+        let d = tree();
+        let mut t = Tally::default();
+        process(&contents(d.path().to_path_buf()), false, &mut t).unwrap();
+        assert_eq!((t.bytes, t.files, t.failed), (160, 3, 0));
+        assert!(d.path().join("a/b/z.tmp").exists());
+    }
+
+    #[test]
+    fn empties_folder_but_keeps_it() {
+        let d = tree();
+        let mut t = Tally::default();
+        process(&contents(d.path().to_path_buf()), true, &mut t).unwrap();
+        assert_eq!((t.bytes, t.files, t.failed), (160, 3, 0));
+        assert!(d.path().exists());
+        assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn keeps_recent_files() {
+        let d = tree();
+        let mut t = Tally::default();
+        let target = Target::Contents { dir: d.path().to_path_buf(), min_age: Some(TEMP_MIN_AGE) };
+        process(&target, true, &mut t).unwrap();
+        assert_eq!(t.files, 0);
+        assert!(d.path().join("a/b/z.tmp").exists());
+    }
+
+    #[test]
+    fn deletes_read_only_files() {
+        let d = tree();
+        let f = d.path().join("x.tmp");
+        let mut p = std::fs::metadata(&f).unwrap().permissions();
+        p.set_readonly(true);
+        std::fs::set_permissions(&f, p).unwrap();
+        let mut t = Tally::default();
+        process(&contents(d.path().to_path_buf()), true, &mut t).unwrap();
+        assert!(!f.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_links() {
+        let d = tree();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("keep"), b"1").unwrap();
+        std::os::unix::fs::symlink(outside.path(), d.path().join("link")).unwrap();
+        let mut t = Tally::default();
+        process(&contents(d.path().to_path_buf()), true, &mut t).unwrap();
+        assert!(outside.path().join("keep").exists());
+        assert!(!d.path().join("link").exists());
+    }
+
+    #[test]
+    fn whole_dir_and_file_patterns() {
+        let d = tree();
+        let mut t = Tally::default();
+        process(&Target::WholeDir { dir: d.path().join("a"), take_ownership: false }, true, &mut t).unwrap();
+        assert!(!d.path().join("a").exists());
+        std::fs::write(d.path().join("setup.EXE"), b"12").unwrap();
+        let mut t = Tally::default();
+        let target = Target::Files { dir: d.path().to_path_buf(), pred: |n| n.ends_with(".exe") };
+        process(&target, true, &mut t).unwrap();
+        assert_eq!(t.files, 1);
+        assert!(d.path().join("x.tmp").exists());
+    }
+
+    #[test]
+    fn refuses_roots() {
+        assert!(!sane(Path::new("/")));
+        assert!(!sane(Path::new("relative/path/x")));
     }
 }

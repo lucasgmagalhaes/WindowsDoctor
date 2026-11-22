@@ -60,12 +60,14 @@ export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, 
       <button className="btn block" disabled={busy} onClick={onPickFolder}>
         Analisar uma pasta…
       </button>
-      <div className="side-clean">
-        <button className="btn block" disabled={busy} onClick={onCleanup}>
-          🧹 Limpeza recomendada
-        </button>
-        <small className="muted">Mostra o que pode e o que não pode ser apagado, e limpa o que é seguro.</small>
-      </div>
+      <button
+        className="btn block"
+        disabled={busy}
+        onClick={onCleanup}
+        title="Apaga caches, temporários e restos de instalação do Windows e dos aplicativos"
+      >
+        🧹 Limpeza automática…
+      </button>
       <label className="field">
         <span>Agrupar arquivos menores que</span>
         <select value={minFileSize} onChange={(e) => onMinFileSize(Number(e.target.value))} disabled={busy}>

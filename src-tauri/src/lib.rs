@@ -13,14 +13,6 @@ use tauri::{AppHandle, Emitter, State};
 struct AppState {
     tree: Mutex<Option<Tree>>,
     progress: Mutex<Option<Arc<Progress>>>,
-    /// Options of the last full scan, reused when rescanning folders.
-    scan_opts: Mutex<ScanOptions>,
-}
-
-impl AppState {
-    fn opts(&self) -> ScanOptions {
-        self.scan_opts.lock().map(|o| o.clone()).unwrap_or_default()
-    }
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -118,9 +110,6 @@ fn start_scan(
         min_file_size: min_file_size.unwrap_or(1024 * 1024),
         ..ScanOptions::default()
     };
-    if node_id.is_none() {
-        *state.scan_opts.lock().map_err(|e| e.to_string())? = opts.clone();
-    }
     let state = state.inner().clone();
     let done = Arc::new(AtomicBool::new(false));
 
@@ -364,7 +353,8 @@ async fn delete_node(
                 // Exclusão parcial: re-varre o que sobrou para a árvore ficar correta.
                 match t.find(&path) {
                     Some(id) if path.exists() && t.kind(id) == Some(NodeKind::Dir) => {
-                        if let Ok(sub) = diskscan::scan(&path, &state.opts(), &Progress::new()) {
+                        let opts = ScanOptions::default();
+                        if let Ok(sub) = diskscan::scan(&path, &opts, &Progress::new()) {
                             t.replace_subtree(id, sub);
                         }
                     }
@@ -381,124 +371,76 @@ async fn delete_node(
     .map_err(|e| e.to_string())?
 }
 
-// ---------------------------------------------------------------- cleanup
+// ---------------------------------------------------------------- limpeza automática
 
 #[tauri::command]
-async fn analyze_cleanup() -> CmdResult<Vec<cleanup::CleanupItem>> {
+async fn cleanup_analyze() -> CmdResult<cleanup::CleanupReport> {
     tauri::async_runtime::spawn_blocking(cleanup::analyze)
         .await
         .map_err(|e| e.to_string())
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CleanupProgress {
+    index: usize,
+    total: usize,
+    title: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CleanupRun {
-    results: Vec<cleanup::CleanupResult>,
-    total: diskscan::CleanReport,
+struct CleanupRunResult {
+    results: Vec<cleanup::CategoryResult>,
+    /// Totais da varredura atual depois de atualizada (None sem varredura).
     stats: Option<ScanStats>,
 }
 
+/// Limpa as categorias informadas e atualiza a árvore da varredura atual nas
+/// pastas afetadas. Emite `cleanup-progress` antes de cada categoria.
 #[tauri::command]
-async fn run_cleanup(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> CmdResult<CleanupRun> {
+async fn cleanup_run(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    ids: Vec<String>,
+) -> CmdResult<CleanupRunResult> {
     if state.progress.lock().map_err(|e| e.to_string())?.is_some() {
         return Err("aguarde a varredura em andamento terminar".into());
     }
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let (results, touched) = cleanup::run(&ids);
-        let mut total = diskscan::CleanReport::default();
-        for r in &results {
-            total += r.report;
+        let total = ids.len();
+        let (results, touched) = cleanup::run(&ids, |index, title| {
+            let _ = app.emit("cleanup-progress", CleanupProgress { index, total, title: title.into() });
+        });
+        let mut guard = state.tree.lock().map_err(|e| e.to_string())?;
+        if let Some(t) = guard.as_mut() {
+            for path in touched {
+                let Some(id) = t.find(&path) else { continue };
+                if !path.exists() {
+                    t.remove_path(&path);
+                } else if t.kind(id) == Some(NodeKind::Dir) {
+                    if let Ok(sub) = diskscan::scan(&path, &ScanOptions::default(), &Progress::new()) {
+                        t.replace_subtree(id, sub);
+                    }
+                }
+            }
         }
-        refresh_paths(&state, &touched);
-        let stats = state.tree.lock().map_err(|e| e.to_string())?.as_ref().map(Tree::stats);
-        Ok(CleanupRun { results, total, stats })
+        Ok(CleanupRunResult {
+            results,
+            stats: guard.as_ref().map(|t| t.stats()),
+        })
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Resolves short names (`LUCASG~1`) and removes the `\\?\` prefix so the
-/// path can be compared with the scanned ones.
-fn canonical(p: &Path) -> PathBuf {
-    let c = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    match c.to_string_lossy().strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with(r"UNC\") => PathBuf::from(rest),
-        _ => c,
-    }
-}
-
-/// Rescans, in the current tree, the folders changed outside it.
-fn refresh_paths(state: &AppState, paths: &[PathBuf]) {
-    let targets: Vec<PathBuf> = {
-        let Ok(guard) = state.tree.lock() else { return };
-        let Some(t) = guard.as_ref() else { return };
-        paths
-            .iter()
-            .filter_map(|p| t.find_ignore_case(&canonical(p)))
-            .filter(|&id| t.kind(id) == Some(NodeKind::Dir))
-            .filter_map(|id| t.path_of(id))
-            .collect()
-    };
-    let opts = state.opts();
-    for path in targets {
-        // Scans outside the lock; the swap is fast.
-        let Ok(sub) = diskscan::scan(&path, &opts, &Progress::new()) else { continue };
-        if let Ok(mut guard) = state.tree.lock() {
-            if let Some(t) = guard.as_mut() {
-                if let Some(id) = t.find(&path) {
-                    t.replace_subtree(id, sub);
-                }
-            }
-        }
-    }
-}
-
-/// Opens a Windows tool from the allow-list (Disk Cleanup etc.).
+/// Abre uma nova instância do app elevada (UAC) e fecha esta.
 #[tauri::command]
-fn open_system_tool(tool: String) -> CmdResult<()> {
-    let target = cleanup::tool_target(&tool).ok_or("ferramenta desconhecida")?;
-    #[cfg(windows)]
-    {
-        let mut cmd = if target.starts_with("ms-settings:") {
-            let mut c = std::process::Command::new("explorer.exe");
-            c.arg(target);
-            c
-        } else {
-            std::process::Command::new(target)
-        };
-        cmd.spawn().map_err(|e| e.to_string())?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        Err(format!("{target}: disponível apenas no Windows"))
-    }
-}
-
-/// Runs a command from the allow-list as administrator. Windows shows the UAC
-/// prompt and the command runs in a visible console window.
-#[tauri::command]
-fn run_elevated(command_id: String) -> CmdResult<()> {
-    let cmd = cleanup::elevated_command(&command_id).ok_or("comando desconhecido")?;
-    #[cfg(windows)]
-    {
-        std::process::Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                &format!("Start-Process -FilePath cmd.exe -ArgumentList '/k {cmd}' -Verb RunAs"),
-            ])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        Err(format!("{cmd}: disponível apenas no Windows"))
-    }
+fn relaunch_as_admin(app: AppHandle) -> CmdResult<()> {
+    cleanup::relaunch_elevated()?;
+    app.exit(0);
+    Ok(())
 }
 
 // ---------------------------------------------------------------- app
@@ -520,10 +462,9 @@ pub fn run() {
             find_path,
             reveal_path,
             delete_node,
-            analyze_cleanup,
-            run_cleanup,
-            open_system_tool,
-            run_elevated,
+            cleanup_analyze,
+            cleanup_run,
+            relaunch_as_admin,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");
