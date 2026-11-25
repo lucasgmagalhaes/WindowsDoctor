@@ -101,13 +101,13 @@ fn all() -> Vec<Tweak> {
             title: "Plano de energia Alto Desempenho",
             description: "Mantém o processador em frequências altas e reduz atrasos ao sair do repouso. \
                           Aumenta o consumo e o calor; em notebooks, prefira só na tomada. \
-                          Desfazer volta para o plano Equilibrado.",
+                          Desligar este ajuste seleciona o plano Equilibrado, mesmo se outro plano estava ativo antes.",
             category: "Energia",
             needs_admin: false,
             needs_restart: false,
             state: || {
-                let out = powercfg(&["/getactivescheme"])?.to_lowercase();
-                Ok(out.contains(HIGH_PERFORMANCE) || out.contains(ULTIMATE_PERFORMANCE))
+                let out = powercfg(&["/getactivescheme"])?;
+                Ok(is_high_performance_active(&out))
             },
             set: |on| {
                 if !on {
@@ -116,10 +116,13 @@ fn all() -> Vec<Tweak> {
                 if powercfg(&["/setactive", HIGH_PERFORMANCE]).is_ok() {
                     return Ok(());
                 }
-                // Em PCs com Modern Standby o plano fica escondido: cria uma cópia.
-                let out = powercfg(&["/duplicatescheme", HIGH_PERFORMANCE])?;
-                let guid = find_guid(&out).ok_or("o Windows não criou o plano Alto Desempenho")?;
-                powercfg(&["/setactive", &guid]).map(|_| ())
+                // Em PCs com Modern Standby o plano fica escondido. Um GUID
+                // fixo permite reconhecer e reutilizar a cópia nas próximas vezes.
+                if powercfg(&["/setactive", APP_HIGH_PERFORMANCE]).is_ok() {
+                    return Ok(());
+                }
+                powercfg(&["/duplicatescheme", HIGH_PERFORMANCE, APP_HIGH_PERFORMANCE])?;
+                powercfg(&["/setactive", APP_HIGH_PERFORMANCE]).map(|_| ())
             },
         },
         Tweak {
@@ -195,6 +198,7 @@ const GAME_DVR: &str = r"Software\Microsoft\Windows\CurrentVersion\GameDVR";
 const BALANCED: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
 const HIGH_PERFORMANCE: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
 const ULTIMATE_PERFORMANCE: &str = "e9a42b02-d5df-448d-aa00-03f14749eb61";
+const APP_HIGH_PERFORMANCE: &str = "a774c325-5aae-4b70-807c-ab777c8e222d";
 const SUB_PCIEXPRESS: &str = "SUB_PCIEXPRESS";
 const ASPM: &str = "ASPM";
 const SUB_USB: &str = "2a737441-1930-4402-8d77-b2bebba308a3";
@@ -236,6 +240,12 @@ fn find_guid(text: &str) -> Option<String> {
         .map(str::to_lowercase)
 }
 
+fn is_high_performance_active(output: &str) -> bool {
+    find_guid(output).as_deref().is_some_and(|guid| {
+        [HIGH_PERFORMANCE, ULTIMATE_PERFORMANCE, APP_HIGH_PERFORMANCE].contains(&guid)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +267,16 @@ mod tests {
         let out = "Power Scheme GUID: 5E7A8B2C-1111-2222-3333-444455556666  (High performance)";
         assert_eq!(find_guid(out).as_deref(), Some("5e7a8b2c-1111-2222-3333-444455556666"));
         assert_eq!(find_guid("sem guid"), None);
+    }
+
+    #[test]
+    fn recognizes_copied_high_performance_plan() {
+        for guid in [HIGH_PERFORMANCE, ULTIMATE_PERFORMANCE, APP_HIGH_PERFORMANCE] {
+            assert!(is_high_performance_active(&format!(
+                "Power Scheme GUID: {guid}"
+            )));
+        }
+        assert!(!is_high_performance_active(&format!("Power Scheme GUID: {BALANCED}")));
     }
 
     #[test]

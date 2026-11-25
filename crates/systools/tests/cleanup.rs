@@ -67,3 +67,33 @@ fn does_not_follow_symlinks() {
     assert_eq!(r.deleted, 0);
     assert!(outside.join("doc.txt").exists());
 }
+
+#[cfg(windows)]
+#[test]
+fn does_not_follow_junctions() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("important");
+    write(&outside.join("doc.txt"), 10, 5 * DAY);
+    let root = dir.path().join("Temp");
+    fs::create_dir_all(&root).unwrap();
+    let junction = |link: &std::path::Path| {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    };
+
+    junction(&root.join("link"));
+    let r = clean_dirs(std::slice::from_ref(&root), None, SystemTime::now());
+    assert_eq!(r.deleted, 0);
+    assert!(outside.join("doc.txt").exists());
+
+    let linked_root = dir.path().join("TempLink");
+    junction(&linked_root);
+    let r = clean_dirs(&[linked_root], None, SystemTime::now());
+    assert_eq!(r.skipped, 1);
+    assert!(outside.join("doc.txt").exists());
+}

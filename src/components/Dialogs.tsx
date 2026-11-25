@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Progress } from "../api";
 import { formatBytes, formatCount } from "../format";
-import { hintFor } from "../hints";
+import { LEVEL_INFO, hintFor } from "../hints";
 
 export function ScanOverlay({ progress, target, onCancel }: { progress: Progress | null; target: string; onCancel: () => void }) {
   return (
@@ -76,7 +76,10 @@ export function DeleteDialog({
         </p>
         {hint && (
           <p className={`hint-box ${hint.level}`}>
-            <strong>{hint.title}:</strong> {hint.detail}
+            <strong>
+              {LEVEL_INFO[hint.level].icon} {LEVEL_INFO[hint.level].label} — {hint.title}:
+            </strong>{" "}
+            {hint.detail}
           </p>
         )}
         <label className="check">

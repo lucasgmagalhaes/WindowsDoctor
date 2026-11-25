@@ -47,8 +47,10 @@ export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) 
     withBusy(t.id, async () => {
       const n = await api.setTweak(t.id, apply);
       setTweaks((list) => list?.map((x) => (x.id === t.id ? n : x)) ?? null);
-      const verb = apply ? "aplicado" : "desfeito";
-      notify(n.needsRestart ? `"${n.title}" ${verb}. Reinicie o PC para valer.` : `"${n.title}" ${verb}.`);
+      const message = !apply && t.id === "high_performance_plan"
+        ? "Plano Equilibrado ativado."
+        : `"${n.title}" ${apply ? "aplicado" : "desligado"}.`;
+      notify(n.needsRestart ? `${message} Reinicie o PC para valer.` : message);
     });
 
   const toggleStartup = (s: StartupEntry, enabled: boolean) =>
@@ -63,7 +65,7 @@ export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) 
   return (
     <ToolPage
       title="Otimizações"
-      subtitle="Ajustes do Windows que resolvem problemas comuns ou melhoram o desempenho. Todos podem ser desfeitos aqui mesmo."
+      subtitle="Ajustes do Windows que resolvem problemas comuns ou melhoram o desempenho. Desligar um ajuste aplica o valor descrito; o estado anterior pode não ser restaurado."
       actions={
         <button className="btn" onClick={load}>
           Atualizar

@@ -68,13 +68,56 @@ pub struct Usage {
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
+fn is_link(meta: &fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        meta.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT (junctions)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn safe_path(path: &Path) -> bool {
+    if !path.is_absolute()
+        || path.ancestors().any(|p| fs::symlink_metadata(p).map_or(true, |m| is_link(&m)))
+    {
+        return false;
+    }
+    let Ok(resolved) = path.canonicalize() else { return false };
+    if resolved.components().count() < 3 {
+        return false;
+    }
+    let lower = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
+    let candidate = lower(&resolved);
+    ["SystemRoot", "USERPROFILE", "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "LOCALAPPDATA", "APPDATA"]
+        .iter()
+        .filter_map(|name| std::env::var_os(name).filter(|v| !v.is_empty()))
+        .filter_map(|p| PathBuf::from(p).canonicalize().ok())
+        .all(|p| {
+            let protected = lower(&p);
+            protected != candidate && !protected.starts_with(&(candidate.clone() + std::path::MAIN_SEPARATOR_STR))
+        })
+}
+
+fn is_temp_dir(path: &Path) -> bool {
+    path.file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+        .is_some_and(|name| name == "temp" || name == "tmp")
+}
+
 /// Os alvos de limpeza disponíveis neste computador (só pastas que existem).
 pub fn targets() -> Vec<Target> {
     let mut list = platform_targets();
     for t in &mut list {
         if let Source::Folders(paths) = &mut t.source {
             dedup_paths(paths);
-            paths.retain(|p| p.is_dir());
+            paths.retain(|p| p.is_dir() && safe_path(p) && (t.id != "user_temp" || is_temp_dir(p)));
         }
     }
     list.retain(|t| match &t.source {
@@ -137,6 +180,10 @@ pub fn clean(target: &Target) -> CleanResult {
 pub fn measure_dirs(paths: &[PathBuf], min_age: Option<Duration>, now: SystemTime) -> Usage {
     let mut u = Usage::default();
     for p in paths {
+        if !safe_path(p) {
+            u.unreadable += 1;
+            continue;
+        }
         walk(p, &mut |entry| match entry {
             Entry::File(_, meta) => {
                 if old_enough(&meta, min_age, now) {
@@ -156,6 +203,10 @@ pub fn measure_dirs(paths: &[PathBuf], min_age: Option<Duration>, now: SystemTim
 pub fn clean_dirs(paths: &[PathBuf], min_age: Option<Duration>, now: SystemTime) -> CleanResult {
     let mut r = CleanResult::default();
     for root in paths {
+        if !safe_path(root) {
+            r.skipped += 1;
+            continue;
+        }
         walk(root, &mut |entry| match entry {
             Entry::File(path, meta) => {
                 if !old_enough(&meta, min_age, now) {
@@ -200,7 +251,7 @@ fn walk(dir: &Path, f: &mut dyn FnMut(Entry)) {
             continue;
         };
         let ft = meta.file_type();
-        if ft.is_symlink() {
+        if is_link(&meta) {
             continue;
         }
         if ft.is_dir() {

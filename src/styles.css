@@ -302,3 +302,32 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
   .list-panel { width: 380px; }
   .item-meta { display: none; }
 }
+
+/* ---------- limpeza automática */
+.cleanup-dialog { width: min(720px, 100%); max-height: calc(100vh - 32px); }
+.cleanup-wait { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 0; text-align: center; }
+.cleanup-list { overflow-y: auto; min-height: 0; flex: 1; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); padding: 4px 12px; }
+.cleanup-list h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.cleanup-list ul { list-style: none; margin: 0; padding: 0; }
+.cleanup-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.cleanup-list section:last-child .cleanup-item:last-child { border-bottom: none; }
+.cleanup-item.disabled .check { opacity: 0.55; cursor: default; }
+.cleanup-title { font-weight: 600; min-width: 0; }
+.cleanup-size { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cleanup-detail { padding-left: 24px; line-height: 1.45; }
+.cleanup-paths { margin: 4px 0 0 24px !important; display: flex; flex-direction: column; gap: 2px; word-break: break-all; }
+.link-btn { border: none; background: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.link-btn:hover { text-decoration: underline; }
+.spacer { flex: 1; }
+.cleanup-donot { margin-top: 8px; }
+.cleanup-donot h4 { color: var(--crit) !important; }
+.cleanup-donot > p { margin: 0 0 4px; }
+.cleanup-donot .cleanup-detail { padding-left: 0; }
+.donot-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.donot-head code { color: var(--muted); word-break: break-all; }
+.cleanup-results { width: 100%; border-collapse: collapse; }
+.cleanup-results td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.cleanup-results .num { text-align: right; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
+.admin-box { display: flex; align-items: center; gap: 12px; }
+.admin-box span { flex: 1; }
+.admin-box .btn { white-space: nowrap; }

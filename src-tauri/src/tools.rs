@@ -4,7 +4,6 @@
 //! principal para a janela não congelar.
 
 use systools::{cleanup, diagnostics, elevation, startup, tweaks};
-use tauri::AppHandle;
 
 type CmdResult<T> = Result<T, String>;
 
@@ -17,14 +16,6 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + '
 #[tauri::command]
 pub fn is_elevated() -> bool {
     elevation::is_elevated()
-}
-
-/// Abre o app como administrador e fecha esta instância.
-#[tauri::command]
-pub async fn relaunch_as_admin(app: AppHandle) -> CmdResult<()> {
-    blocking(elevation::relaunch_as_admin).await?;
-    app.exit(0);
-    Ok(())
 }
 
 #[tauri::command]

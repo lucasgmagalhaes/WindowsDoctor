@@ -4467,6 +4467,7 @@ name = "windows-folder-map"
 version = "0.1.0"
 dependencies = [
  "diskscan",
+ "rayon",
  "serde",
  "serde_json",
  "sysinfo",
@@ -4474,7 +4475,9 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tempfile",
  "trash",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

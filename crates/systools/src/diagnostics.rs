@@ -451,10 +451,18 @@ fn check_kernel_power(raw: &RawSystem) -> Check {
 
 fn check_disks(raw: &RawSystem) -> Check {
     let (_, month, last) = recent(raw.events.iter().filter(|e| is_disk_event(e)));
+    let unverified = raw.disks.is_empty()
+        || raw.disks.iter().any(|d| {
+            d.health.trim().is_empty() || d.health.eq_ignore_ascii_case("unknown")
+        });
     let bad: Vec<&PhysicalDisk> = raw
         .disks
         .iter()
-        .filter(|d| !d.health.is_empty() && !d.health.eq_ignore_ascii_case("healthy"))
+        .filter(|d| {
+            !d.health.trim().is_empty()
+                && !d.health.eq_ignore_ascii_case("healthy")
+                && !d.health.eq_ignore_ascii_case("unknown")
+        })
         .collect();
     let mut details: Vec<String> = raw
         .disks
@@ -466,6 +474,8 @@ fn check_disks(raw: &RawSystem) -> Check {
         Status::Crit
     } else if month > 0 {
         Status::Warn
+    } else if unverified {
+        Status::Info
     } else {
         Status::Ok
     };
@@ -479,6 +489,8 @@ fn check_disks(raw: &RawSystem) -> Check {
             "{} de disco ou de sistema de arquivos nos últimos 30 dias.",
             plural(month, "erro", "erros")
         )
+    } else if unverified {
+        "Não foi possível verificar a saúde de todos os discos.".into()
     } else {
         "Discos saudáveis e sem erros nos últimos 30 dias.".into()
     };
@@ -488,14 +500,14 @@ fn check_disks(raw: &RawSystem) -> Check {
         status,
         summary,
         details,
-        actions: if status == Status::Ok {
-            vec![]
-        } else {
-            vec![
+        actions: match status {
+            Status::Ok => vec![],
+            Status::Info => vec!["Confira a saúde dos discos com a ferramenta do fabricante.".into()],
+            Status::Warn | Status::Crit => vec![
                 "Faça backup dos arquivos importantes.".into(),
                 "Rode \"chkdsk C: /scan\" num terminal como administrador.".into(),
                 "Confira o cabo SATA ou o encaixe do SSD M.2 e veja os dados SMART com o CrystalDiskInfo.".into(),
-            ]
+            ],
         },
         tweak: None,
         module: None,
@@ -507,6 +519,7 @@ fn translate_health(h: &str) -> &str {
         "Healthy" => "saudável",
         "Warning" => "atenção",
         "Unhealthy" => "com defeito",
+        "Unknown" => "desconhecida",
         "" => "desconhecida",
         other => other,
     }
@@ -789,6 +802,28 @@ mod tests {
         let c = get(&evaluate(&raw), "disks").clone();
         assert_eq!(c.status, Status::Crit);
         assert!(c.summary.contains("Samsung SSD"));
+    }
+
+    #[test]
+    fn unavailable_disk_health_is_not_reported_as_healthy() {
+        let mut raw = base();
+        let c = get(&evaluate(&raw), "disks").clone();
+        assert_eq!(c.status, Status::Info);
+        assert!(c.summary.contains("Não foi possível verificar"));
+
+        raw.disks = vec![PhysicalDisk {
+            name: "SSD".into(),
+            health: "Unknown".into(),
+            ..PhysicalDisk::default()
+        }];
+        assert_eq!(get(&evaluate(&raw), "disks").status, Status::Info);
+
+        raw.events.push(ev("disk", 7, 1.0));
+        assert_eq!(get(&evaluate(&raw), "disks").status, Status::Warn);
+
+        raw.events.clear();
+        raw.disks[0].health = "Healthy".into();
+        assert_eq!(get(&evaluate(&raw), "disks").status, Status::Ok);
     }
 
     #[test]
