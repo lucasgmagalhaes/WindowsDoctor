@@ -1,7 +1,7 @@
 // Dados simulados dos módulos Limpeza, Diagnóstico e Otimizações para
 // desenvolver a interface no navegador.
 
-import type { Api, HistoryEntry, Report, StartupEntry, Tweak } from "./api";
+import type { Api, DuplicateGroup, HistoryEntry, Report, StartupEntry, Tweak } from "./api";
 
 const GB = 1024 ** 3;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -183,8 +183,38 @@ function log(kind: string, title: string, undo: HistoryEntry["undo"]) {
 
 const repairCbs = new Set<(p: { line: string; percent: number | null }) => void>();
 
+const dupCbs = new Set<(p: { files: number; hashed: number }) => void>();
+let dupGroups: DuplicateGroup[] = [
+  { size: 4.3 * GB, wasted: 4.3 * GB, paths: ["C:\\Users\\voce\\Downloads\\Win11_23H2.iso", "C:\\Users\\voce\\Desktop\\Win11_23H2 (1).iso"] },
+  { size: 1.2 * GB, wasted: 2.4 * GB, paths: ["C:\\Users\\voce\\Videos\\ferias.mp4", "C:\\Users\\voce\\Downloads\\ferias.mp4", "D:\\Backup\\ferias.mp4"] },
+  { size: 230 * 1024 ** 2, wasted: 230 * 1024 ** 2, paths: ["C:\\Users\\voce\\Downloads\\setup.exe", "C:\\Users\\voce\\Downloads\\setup (2).exe"] },
+];
+
 export function createMockTools(): Tools {
   return {
+    async findDuplicates() {
+      for (let i = 1; i <= 5; i++) {
+        dupCbs.forEach((cb) => cb({ files: i * 2311, hashed: i * 40 }));
+        await delay(250);
+      }
+      return dupGroups.map((g) => ({ ...g, paths: [...g.paths] }));
+    },
+    async cancelDuplicates() {},
+    async deleteDuplicates(paths) {
+      let freed = 0;
+      dupGroups = dupGroups
+        .map((g) => {
+          const keep = g.paths.filter((p) => !paths.includes(p));
+          freed += g.size * (g.paths.length - keep.length);
+          return { ...g, paths: keep, wasted: g.size * (keep.length - 1) };
+        })
+        .filter((g) => g.paths.length > 1);
+      return freed;
+    },
+    async onDuplicatesProgress(cb) {
+      dupCbs.add(cb);
+      return () => dupCbs.delete(cb);
+    },
     async runRepair(kind) {
       if (kind !== "memory") throw new Error("este reparo precisa do app aberto como administrador");
       for (let i = 0; i <= 100; i += 25) {

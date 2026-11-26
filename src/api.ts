@@ -225,6 +225,12 @@ export interface RepairOutcome {
   tail: string[];
 }
 
+export interface DuplicateGroup {
+  size: number;
+  wasted: number;
+  paths: string[];
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -264,6 +270,12 @@ export interface Api {
   systemReport(): Promise<Report>;
   /** Leva ~15 s. */
   networkTest(): Promise<{ checks: Check[] }>;
+  /** Sem pastas, procura na pasta do usuário. */
+  findDuplicates(roots: string[] | null, minSize: number): Promise<DuplicateGroup[]>;
+  cancelDuplicates(): Promise<void>;
+  /** Envia para a Lixeira; devolve os bytes liberados. */
+  deleteDuplicates(paths: string[]): Promise<number>;
+  onDuplicatesProgress(cb: (p: { files: number; hashed: number }) => void): Promise<() => void>;
   runRepair(kind: RepairKind): Promise<RepairOutcome>;
   onRepairProgress(cb: (p: { line: string; percent: number | null }) => void): Promise<() => void>;
   listTweaks(): Promise<Tweak[]>;
@@ -325,6 +337,10 @@ async function tauriApi(): Promise<Api> {
     relaunchAsAdmin: () => invoke("relaunch_as_admin"),
     systemReport: () => invoke("system_report"),
     networkTest: () => invoke("network_test"),
+    findDuplicates: (roots, minSize) => invoke("find_duplicates", { roots, minSize }),
+    cancelDuplicates: () => invoke("cancel_duplicates"),
+    deleteDuplicates: (paths) => invoke("delete_duplicates", { paths }),
+    onDuplicatesProgress: (cb) => listen<{ files: number; hashed: number }>("duplicates-progress", (e) => cb(e.payload)),
     runRepair: (kind) => invoke("run_repair", { kind }),
     onRepairProgress: (cb) => listen<{ line: string; percent: number | null }>("repair-progress", (e) => cb(e.payload)),
     listTweaks: () => invoke("list_tweaks"),

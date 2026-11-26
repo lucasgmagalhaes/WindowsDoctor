@@ -11,6 +11,7 @@
 
 pub mod ddc;
 pub mod diagnostics;
+pub mod duplicates;
 pub mod history;
 pub mod monitor;
 pub mod network;

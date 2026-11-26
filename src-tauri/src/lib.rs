@@ -10,6 +10,7 @@ use diskscan::{Crumb, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanS
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod dupes;
 mod tools;
 
 #[derive(Default)]
@@ -512,6 +513,7 @@ pub fn run() {
         .manage(tools::RestoreSession::default())
         .manage(tools::BlackScreenMonitor::default())
         .manage(tools::RepairRunning::default())
+        .manage(Arc::new(dupes::DupState::default()))
         .setup(|app| {
             let path = app.path().app_local_data_dir().ok().map(|d| d.join("history.json"));
             app.manage(Arc::new(systools::history::History::load(path)));
@@ -533,6 +535,9 @@ pub fn run() {
             tools::system_report,
             tools::network_test,
             tools::run_repair,
+            dupes::find_duplicates,
+            dupes::cancel_duplicates,
+            dupes::delete_duplicates,
             tools::list_tweaks,
             tools::set_tweak,
             tools::list_startup,
