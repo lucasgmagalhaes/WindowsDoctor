@@ -11,6 +11,7 @@ const KIND_LABEL: Record<string, string> = {
   delete: "Exclusão",
   restore: "Restauração",
   repair: "Reparo",
+  monitor: "Tela preta",
 };
 
 export function History({ api, notify, elevated, active }: ToolProps & { active: boolean }) {

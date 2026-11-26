@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Api, CleanupRunResult } from "./api";
 import { getApi } from "./api";
 import { checkForUpdate, type UpdateInfo } from "./update";
+import { blackScreenMonitorEnabled } from "./safety";
 import { DiskMap } from "./modules/DiskMap";
 import { Cleanup } from "./modules/Cleanup";
 import { Diagnostics } from "./modules/Diagnostics";
@@ -45,16 +46,26 @@ export default function App() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
 
+  const notifyRef = useRef<Notify>(() => undefined);
   const notify = useCallback<Notify>((text, kind = "ok") => {
     setToast({ text, kind });
     window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 6000);
   }, []);
+  notifyRef.current = notify;
 
   useEffect(() => {
     getApi().then((a) => {
       setApi(a);
       a.isElevated().then(setElevated).catch(() => setElevated(false));
       if (!a.isMock) a.appVersion().then(checkForUpdate).then(setUpdate).catch(() => undefined);
+      if (blackScreenMonitorEnabled()) a.setBlackScreenMonitor(true).catch(() => undefined);
+      a.onBlackScreen((e) => {
+        const at = new Date(e.timeUtc).toLocaleTimeString("pt-BR");
+        notifyRef.current(
+          `Tela preta detectada às ${at}${e.foregroundApp ? ` com ${e.foregroundApp} aberto` : ""}. Registrado no Histórico.`,
+          "err",
+        );
+      });
     });
   }, []);
 

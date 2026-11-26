@@ -163,7 +163,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -179,6 +179,10 @@ function log(kind: string, title: string, undo: HistoryEntry["undo"]) {
 
 export function createMockTools(): Tools {
   return {
+    async setBlackScreenMonitor() {},
+    async onBlackScreen() {
+      return () => undefined;
+    },
     async appVersion() {
       return "0.1.0";
     },

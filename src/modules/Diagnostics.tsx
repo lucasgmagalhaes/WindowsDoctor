@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Check, CheckStatus, Report, Tweak } from "../api";
 import type { ToolProps } from "../App";
-import { beforeChange } from "../safety";
-import { AdminNotice, Loading, ToolPage } from "../components/ToolLayout";
+import { beforeChange, blackScreenMonitorEnabled, setBlackScreenMonitorEnabled } from "../safety";
+import { AdminNotice, Loading, Toggle, ToolPage } from "../components/ToolLayout";
 import { formatBytes } from "../format";
 
 const STATUS_LABEL: Record<CheckStatus, string> = { crit: "Problema", warn: "Atenção", info: "Dica", ok: "OK" };
@@ -41,6 +41,18 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ranAt, setRanAt] = useState<Date | null>(null);
+  const [watching, setWatching] = useState(blackScreenMonitorEnabled);
+
+  const toggleWatch = async (on: boolean) => {
+    try {
+      await api.setBlackScreenMonitor(on);
+      setBlackScreenMonitorEnabled(on);
+      setWatching(on);
+      if (on) notify("Vigiando telas pretas enquanto o app estiver aberto.");
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  };
 
   const run = useCallback(async () => {
     setLoading(true);
@@ -104,6 +116,19 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
       }
     >
       <AdminNotice elevated={elevated} onRelaunch={onRelaunchAdmin} what="O diagnóstico funciona, mas algumas correções sugeridas precisam de administrador." />
+
+      <div className="opt-item">
+        <div className="opt-main">
+          <div className="opt-title">
+            <strong>Vigiar telas pretas em tempo real</strong>
+          </div>
+          <p className="muted small">
+            Enquanto o app estiver aberto (pode ficar minimizado), avisa quando o driver de vídeo travar e se recuperar e
+            anota no Histórico o horário e o programa que estava na tela. Ajuda a ligar os apagões a um jogo ou programa.
+          </p>
+        </div>
+        <Toggle label="Vigiar telas pretas" checked={watching} onChange={toggleWatch} />
+      </div>
 
       {error && <div className="notice err">{error}</div>}
       {loading && !report && <Loading text="Coletando informações do sistema (leva alguns segundos)…" />}

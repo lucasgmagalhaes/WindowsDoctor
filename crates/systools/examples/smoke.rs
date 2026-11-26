@@ -55,6 +55,11 @@ fn main() -> ExitCode {
         println!("ajuste {}: {:?} {}", t.id, t.applied, t.error.unwrap_or_default());
     }
 
+    match systools::monitor::latest_record_id() {
+        Ok(id) => println!("último evento de vídeo no log: {id}"),
+        Err(e) => failures.push(format!("monitor: {e}")),
+    }
+
     match systools::startup::list() {
         Ok(list) => println!("programas na inicialização: {}", list.len()),
         Err(e) => failures.push(format!("inicialização: {e}")),

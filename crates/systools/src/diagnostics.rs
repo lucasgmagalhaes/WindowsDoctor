@@ -878,7 +878,7 @@ fn check_bsod(raw: &RawSystem) -> Check {
             }
         }
     }
-    causes.sort_by(|a, b| b.1.cmp(&a.1));
+    causes.sort_by_key(|c| std::cmp::Reverse(c.1));
     let status = if week > 0 {
         Status::Crit
     } else if month > 0 {

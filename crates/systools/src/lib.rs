@@ -11,6 +11,7 @@
 
 pub mod diagnostics;
 pub mod history;
+pub mod monitor;
 pub mod restore;
 pub mod startup;
 pub mod tweaks;

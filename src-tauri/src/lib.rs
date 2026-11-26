@@ -498,6 +498,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState::default()))
         .manage(tools::RestoreSession::default())
+        .manage(tools::BlackScreenMonitor::default())
         .setup(|app| {
             let path = app.path().app_local_data_dir().ok().map(|d| d.join("history.json"));
             app.manage(Arc::new(systools::history::History::load(path)));
@@ -525,6 +526,7 @@ pub fn run() {
             tools::list_history,
             tools::undo_history,
             tools::clear_history,
+            tools::set_black_screen_monitor,
             cleanup_analyze,
             cleanup_run,
             relaunch_as_admin,

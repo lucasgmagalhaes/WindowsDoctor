@@ -7,8 +7,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use systools::{diagnostics, restore, startup, tweaks};
-use tauri::State;
+use systools::{diagnostics, monitor, restore, startup, tweaks};
+use tauri::{AppHandle, Emitter, State};
 
 use systools::history::{History, Undo};
 
@@ -149,4 +149,62 @@ pub async fn undo_history(history: State<'_, Arc<History>>, id: u64) -> CmdResul
         Ok(())
     })
     .await
+}
+
+// ---------------------------------------------------------------- monitor de tela preta
+
+/// Liga/desliga a vigilância de travamentos do driver de vídeo.
+#[derive(Default)]
+pub struct BlackScreenMonitor(Arc<AtomicBool>);
+
+/// Começa (ou para) de vigiar o log a cada 10 segundos. Cada travamento vira
+/// uma entrada no histórico e o evento `black-screen` para a tela.
+#[tauri::command]
+pub fn set_black_screen_monitor(
+    app: AppHandle,
+    state: State<'_, BlackScreenMonitor>,
+    history: State<'_, Arc<History>>,
+    enabled: bool,
+) -> CmdResult<()> {
+    let running = state.0.clone();
+    if !enabled {
+        running.store(false, Ordering::SeqCst);
+        return Ok(());
+    }
+    if running.swap(true, Ordering::SeqCst) {
+        return Ok(()); // já está rodando
+    }
+    let mut last = match monitor::latest_record_id() {
+        Ok(id) => id,
+        Err(e) => {
+            running.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
+    let history = history.inner().clone();
+    std::thread::Builder::new()
+        .name("black-screen-monitor".into())
+        .spawn(move || {
+            while running.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                let Ok(events) = monitor::new_events(last) else { continue };
+                for e in events {
+                    last = last.max(e.record_id);
+                    history.record(
+                        "monitor",
+                        "Tela preta detectada (o driver de vídeo travou e se recuperou)",
+                        format!(
+                            "{} {} · programa em primeiro plano: {}",
+                            e.provider,
+                            e.event_id,
+                            e.foreground_app.as_deref().unwrap_or("desconhecido")
+                        ),
+                        None,
+                    );
+                    let _ = app.emit("black-screen", &e);
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

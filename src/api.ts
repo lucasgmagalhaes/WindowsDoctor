@@ -206,6 +206,14 @@ export interface HistoryEntry {
   undone: boolean;
 }
 
+export interface BlackScreen {
+  recordId: number;
+  timeUtc: string;
+  provider: string;
+  eventId: number;
+  foregroundApp: string | null;
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -234,6 +242,8 @@ export interface Api {
   /** Cria um ponto de restauração na primeira alteração da sessão; null se já foi feito. */
   ensureRestorePoint(reason: string): Promise<RestoreOutcome | null>;
   listHistory(): Promise<HistoryEntry[]>;
+  setBlackScreenMonitor(enabled: boolean): Promise<void>;
+  onBlackScreen(cb: (e: BlackScreen) => void): Promise<() => void>;
   undoHistory(id: number): Promise<void>;
   clearHistory(): Promise<void>;
   /** Reabre o app como administrador (fecha esta janela se der certo). */
@@ -284,6 +294,8 @@ async function tauriApi(): Promise<Api> {
     openUrl: (url) => invoke("open_url", { url }),
     ensureRestorePoint: (reason) => invoke("ensure_restore_point", { reason }),
     listHistory: () => invoke("list_history"),
+    setBlackScreenMonitor: (enabled) => invoke("set_black_screen_monitor", { enabled }),
+    onBlackScreen: (cb) => listen<BlackScreen>("black-screen", (e) => cb(e.payload)),
     undoHistory: (id) => invoke("undo_history", { id }),
     clearHistory: () => invoke("clear_history"),
     relaunchAsAdmin: () => invoke("relaunch_as_admin"),

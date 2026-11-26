@@ -35,3 +35,23 @@ export async function beforeChange(api: Api, reason: string, notify?: Notify) {
     notify?.(`Não foi possível criar o ponto de restauração: ${e}`, "err");
   }
 }
+
+// ---------------------------------------------------------------- monitor de tela preta
+
+const MONITOR_KEY = "blackScreenMonitor";
+
+export function blackScreenMonitorEnabled(): boolean {
+  try {
+    return localStorage.getItem(MONITOR_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setBlackScreenMonitorEnabled(on: boolean) {
+  try {
+    localStorage.setItem(MONITOR_KEY, on ? "1" : "0");
+  } catch {
+    // Vale só nesta sessão.
+  }
+}
