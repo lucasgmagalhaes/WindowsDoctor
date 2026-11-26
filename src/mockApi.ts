@@ -285,6 +285,8 @@ const MOCK_CLEANUP: MockCategory[] = [
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const moveCbs = new Set<(copied: number, total: number) => void>();
+
 export function createMockApi(): Api {
   let tree: MockTree | null = null;
   const progressCbs = new Set<(p: Progress) => void>();
@@ -372,6 +374,21 @@ export function createMockApi(): Api {
           { path: "C:\\Windows\\SoftwareDistribution\\Download", before: 0.4 * G, after: 3.4 * G, delta: 3 * G },
         ].sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)),
       };
+    },
+    async moveFolder(id, dest) {
+      const t = need();
+      const path = t.pathOf(id);
+      const total = t.nodes[id].size;
+      for (let i = 1; i <= 5; i++) {
+        moveCbs.forEach((cb) => cb((total * i) / 5, total));
+        await delay(250);
+      }
+      t.remove(id);
+      return { bytes: total, to: `${dest.replace(/\\$/, "")}\\${path.split("\\").pop()}`, leftover: null, stats: t.stats() };
+    },
+    async onMoveProgress(cb) {
+      moveCbs.add(cb);
+      return () => moveCbs.delete(cb);
     },
     async getExtensions() {
       need();

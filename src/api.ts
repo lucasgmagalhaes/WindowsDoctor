@@ -282,6 +282,9 @@ export interface Api {
   getTopFiles(limit: number): Promise<FileInfo[]>;
   /** Espaço por extensão na última varredura completa. */
   getExtensions(): Promise<ExtStat[]>;
+  /** Move a pasta para `dest` e deixa um link no lugar. */
+  moveFolder(id: number, dest: string): Promise<{ bytes: number; to: string; leftover: string | null; stats: Stats }>;
+  onMoveProgress(cb: (copied: number, total: number) => void): Promise<() => void>;
   /** null na primeira varredura de um local. */
   getChanges(): Promise<Comparison | null>;
   /** Pergunta onde salvar; false se cancelar. */
@@ -361,6 +364,8 @@ async function tauriApi(): Promise<Api> {
     getPath: (id) => invoke("get_path", { id }),
     getTopFiles: (limit) => invoke("get_top_files", { limit }),
     getExtensions: () => invoke("get_extensions"),
+    moveFolder: (id, dest) => invoke("move_folder", { id, dest }),
+    onMoveProgress: (cb) => listen<[number, number]>("move-progress", (e) => cb(e.payload[0], e.payload[1])),
     getChanges: () => invoke("get_changes"),
     saveScan: async () => {
       const { save } = await import("@tauri-apps/plugin-dialog");

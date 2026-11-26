@@ -1,3 +1,4 @@
+import { canMove } from "./MoveDialog";
 import type { NodeView } from "../api";
 import { PALETTE, NEUTRAL, isRepeatClick } from "../chartUtils";
 import { formatBytes, formatCount, formatPercent, joinPath, nodeLabel } from "../format";
@@ -12,9 +13,10 @@ interface Props {
   onReveal: (path: string, select: boolean) => void;
   onDelete: (item: { id: number; path: string; size: number; isDir: boolean }) => void;
   onRescan: (id: number) => void;
+  onMove: (item: { id: number; path: string; size: number }) => void;
 }
 
-export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, onReveal, onDelete, onRescan }: Props) {
+export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, onReveal, onDelete, onRescan, onMove }: Props) {
   if (items.length === 0) return <div className="empty">Pasta vazia.</div>;
   return (
     <ul className="items">
@@ -72,6 +74,11 @@ export function ItemList({ items, parentPath, parentSize, highlightId, onOpen, o
                   {it.kind === "dir" && (
                     <button className="icon-btn" title="Analisar esta pasta de novo" onClick={() => onRescan(it.id!)}>
                       ⟳
+                    </button>
+                  )}
+                  {it.kind === "dir" && canMove(path) && (
+                    <button className="icon-btn" title="Mover para outro disco" onClick={() => onMove({ id: it.id!, path, size: it.size })}>
+                      ⇄
                     </button>
                   )}
                   <button

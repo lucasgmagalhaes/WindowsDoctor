@@ -7,6 +7,7 @@ import { ItemList } from "../components/ItemList";
 import { TopFiles } from "../components/TopFiles";
 import { FileTypes } from "../components/FileTypes";
 import { Changes } from "../components/Changes";
+import { MoveDialog, type MoveTarget } from "../components/MoveDialog";
 import { Sidebar } from "../components/Sidebar";
 import { DeleteDialog, ScanOverlay, type DeleteTarget } from "../components/Dialogs";
 import { formatBytes, formatCount, formatPercent, nodeLabel } from "../format";
@@ -47,6 +48,7 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
   const [exts, setExts] = useState<ExtStat[]>([]);
   const [extFilter, setExtFilter] = useState<string | null>(null);
   const [changes, setChanges] = useState<Comparison | null>(null);
+  const [toMove, setToMove] = useState<MoveTarget | null>(null);
   const [hovered, setHovered] = useState<RNode | null>(null);
   const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
   const [minFileSize, setMinFileSize] = useState(1024 * 1024);
@@ -405,6 +407,7 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
                       onReveal={reveal}
                       onDelete={setToDelete}
                       onRescan={rescan}
+                      onMove={setToMove}
                     />
                   </section>
                 </div>
@@ -456,6 +459,26 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
       </main>
 
       {scanTarget && <ScanOverlay progress={progress} target={scanTarget} onCancel={() => api.cancelScan()} />}
+      {toMove && (
+        <MoveDialog
+          api={api}
+          target={toMove}
+          drives={drives}
+          onClose={() => setToMove(null)}
+          onDone={(r) => {
+            setToMove(null);
+            setStats(r.stats);
+            setHovered(null);
+            setVersion((v) => v + 1);
+            refreshDrives(api);
+            notify(
+              `${formatBytes(r.bytes)} movidos para ${r.to}.` +
+                (r.leftover ? ` Não foi possível apagar ${r.leftover}; apague-a depois.` : ""),
+              r.leftover ? "err" : "ok",
+            );
+          }}
+        />
+      )}
       {toDelete && <DeleteDialog target={toDelete} onConfirm={confirmDelete} onClose={() => setToDelete(null)} />}
     </div>
   );

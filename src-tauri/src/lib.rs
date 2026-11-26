@@ -585,6 +585,68 @@ fn save_report(path: String, content: String) -> CmdResult<()> {
     std::fs::write(&p, content).map_err(|e| format!("falha ao salvar {path}: {e}"))
 }
 
+// ---------------------------------------------------------------- mover pasta
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MoveResult {
+    bytes: u64,
+    to: String,
+    leftover: Option<String>,
+    stats: ScanStats,
+}
+
+/// Move a pasta `id` da varredura para `dest` (outro disco) deixando um link
+/// no lugar. Emite `move-progress` com `[copiado, total]`.
+#[tauri::command]
+async fn move_folder(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    history: State<'_, Arc<systools::history::History>>,
+    id: u32,
+    dest: String,
+) -> CmdResult<MoveResult> {
+    let src = with_tree(&state, |t| {
+        if t.kind(id) != Some(NodeKind::Dir) || id == t.root_id() {
+            return Err("escolha uma pasta dentro da varredura".into());
+        }
+        t.path_of(id).ok_or_else(|| "pasta não encontrada".into())
+    })?;
+    let state = state.inner().clone();
+    let history = history.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut last = std::time::Instant::now();
+        let moved = systools::relocate::move_with_link(&src, Path::new(&dest), |c, t| {
+            if last.elapsed() >= Duration::from_millis(200) || c == t {
+                last = std::time::Instant::now();
+                let _ = app.emit("move-progress", (c, t));
+            }
+        })?;
+        history.record(
+            "move",
+            format!("Pasta movida: {}", moved.from.display()),
+            format!(
+                "Para {} ({}); um link no lugar original aponta para lá",
+                moved.to.display(),
+                systools::history::fmt_bytes(moved.bytes)
+            ),
+            None,
+        );
+        with_tree(&state, |t| {
+            // O link é ignorado pelo scanner: o espaço saiu desta varredura.
+            t.remove_path(&moved.from);
+            Ok(MoveResult {
+                bytes: moved.bytes,
+                to: moved.to.display().to_string(),
+                leftover: moved.leftover.map(|p| p.display().to_string()),
+                stats: t.stats(),
+            })
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---------------------------------------------------------------- limpeza agendada
 
 /// Pasta de dados do app, a mesma que o Tauri usa (`%LOCALAPPDATA%\<id>`).
@@ -656,6 +718,7 @@ pub fn run() {
             get_extensions,
             get_changes,
             save_scan,
+            move_folder,
             open_scan,
             reveal_path,
             delete_node,
