@@ -331,6 +331,11 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .changes { max-width: 1100px; padding-top: 8px; }
 .changes-path { text-align: left; word-break: break-all; }
 
+.profiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.profile { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); cursor: pointer; line-height: 1.4; }
+.profile:hover:not(:disabled) { border-color: var(--accent); }
+.profile:disabled { opacity: 0.6; cursor: default; }
+
 /* histórico */
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .history-item { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
