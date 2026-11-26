@@ -44,3 +44,17 @@ fn rejects_other_files_and_truncation() {
     buf.truncate(buf.len() - 3);
     assert!(Tree::load(Cursor::new(buf)).is_err());
 }
+
+#[test]
+fn snapshot_of_a_real_scan() {
+    let d = tempfile::tempdir().unwrap();
+    let r = d.path();
+    fs::create_dir_all(r.join("a/b")).unwrap();
+    fs::write(r.join("a/b/big"), vec![0u8; 4000]).unwrap();
+    fs::write(r.join("small"), vec![0u8; 10]).unwrap();
+    let t = scan(r, &ScanOptions::default(), &Progress::new()).unwrap();
+    let s = t.snapshot(7, 1000, 8);
+    assert_eq!(s.total, 4010);
+    assert_eq!(s.dirs.len(), 3, "{:?}", s.dirs);
+    assert_eq!(s.dirs[&r.join("a/b").to_string_lossy().into_owned()], 4000);
+}

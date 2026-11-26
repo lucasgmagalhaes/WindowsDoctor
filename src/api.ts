@@ -257,6 +257,13 @@ export interface Program {
   uninstall: string;
 }
 
+export interface Comparison {
+  previousTimeMs: number;
+  previousTotal: number;
+  currentTotal: number;
+  changes: { path: string; before: number; after: number; delta: number }[];
+}
+
 export interface ExtStat {
   ext: string;
   size: number;
@@ -275,6 +282,8 @@ export interface Api {
   getTopFiles(limit: number): Promise<FileInfo[]>;
   /** Espaço por extensão na última varredura completa. */
   getExtensions(): Promise<ExtStat[]>;
+  /** null na primeira varredura de um local. */
+  getChanges(): Promise<Comparison | null>;
   /** Pergunta onde salvar; false se cancelar. */
   saveScan(): Promise<boolean>;
   /** Pergunta qual abrir; null se cancelar. */
@@ -352,6 +361,7 @@ async function tauriApi(): Promise<Api> {
     getPath: (id) => invoke("get_path", { id }),
     getTopFiles: (limit) => invoke("get_top_files", { limit }),
     getExtensions: () => invoke("get_extensions"),
+    getChanges: () => invoke("get_changes"),
     saveScan: async () => {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const path = await save({ defaultPath: "varredura.wdscan", filters: [{ name: "Varredura do WindowsDoctor", extensions: ["wdscan"] }] });

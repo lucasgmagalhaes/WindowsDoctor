@@ -357,6 +357,22 @@ export function createMockApi(): Api {
     async openScan() {
       throw new Error("no modo demonstração não há arquivos para abrir");
     },
+    async getChanges() {
+      need();
+      const G = 1024 ** 3;
+      return {
+        previousTimeMs: Date.now() - 12 * 86400e3,
+        previousTotal: 291 * G,
+        currentTotal: 312 * G,
+        changes: [
+          { path: "C:\\Users\\voce\\AppData\\Local\\Docker\\wsl\\disk", before: 9 * G, after: 24 * G, delta: 15 * G },
+          { path: "C:\\Users\\voce\\AppData\\Local\\Temp", before: 1.1 * G, after: 7.2 * G, delta: 6.1 * G },
+          { path: "C:\\Program Files\\Steam\\steamapps\\common\\Jogo Médio", before: 0, after: 31 * G, delta: 31 * G },
+          { path: "C:\\Users\\voce\\Downloads", before: 21.3 * G, after: 14.3 * G, delta: -7 * G },
+          { path: "C:\\Windows\\SoftwareDistribution\\Download", before: 0.4 * G, after: 3.4 * G, delta: 3 * G },
+        ].sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)),
+      };
+    },
     async getExtensions() {
       need();
       const GBx = 1024 ** 3;

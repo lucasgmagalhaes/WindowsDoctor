@@ -18,6 +18,30 @@ mod tools;
 struct AppState {
     tree: Mutex<Option<Tree>>,
     progress: Mutex<Option<Arc<Progress>>>,
+    /// Comparação da última varredura completa com a anterior do mesmo local.
+    changes: Mutex<Option<diskscan::Comparison>>,
+}
+
+/// Grava o resumo das pastas grandes desta varredura e compara com o da
+/// anterior do mesmo local (se houver).
+fn update_snapshot(app: &AppHandle, tree: &Tree) -> Option<diskscan::Comparison> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    const MB: u64 = 1024 * 1024;
+    let dir = app.path().app_local_data_dir().ok()?.join("snapshots");
+    let mut h = DefaultHasher::new();
+    tree.root_path().to_string_lossy().to_lowercase().hash(&mut h);
+    let file = dir.join(format!("{:016x}.json", h.finish()));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or_default();
+    let new = tree.snapshot(now, 100 * MB, 8);
+    let old: Option<diskscan::Snapshot> = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_vec(&new) {
+        let _ = std::fs::write(&file, json);
+    }
+    old.map(|o| diskscan::compare(&o, &new, 200 * MB, 100))
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -158,7 +182,11 @@ fn start_scan(
                                 rescanned = Some(target.to_string_lossy().into_owned());
                             }
                         }
-                        _ => *guard = Some(sub),
+                        _ => {
+                            let changes = if cancelled { None } else { update_snapshot(&app, &sub) };
+                            *state.changes.lock().unwrap() = changes;
+                            *guard = Some(sub)
+                        }
                     }
                     ScanFinished {
                         ok: true,
@@ -268,6 +296,11 @@ async fn open_scan(state: State<'_, Arc<AppState>>, path: String) -> CmdResult<S
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn get_changes(state: State<'_, Arc<AppState>>) -> Option<diskscan::Comparison> {
+    state.changes.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -621,6 +654,7 @@ pub fn run() {
             get_top_files,
             find_path,
             get_extensions,
+            get_changes,
             save_scan,
             open_scan,
             reveal_path,
