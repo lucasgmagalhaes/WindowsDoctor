@@ -1,4 +1,7 @@
-# Windows Folder Map
+# WindowsDoctor
+
+(Formerly *Windows Folder Map*. The internal identifier `com.windowsfoldermap.app` is kept so existing
+installs and their data carry over.)
 
 Desktop app (Tauri v2 with **Rust** + **React**) for looking after a Windows PC. It has four modules,
 picked from the bar on the left:

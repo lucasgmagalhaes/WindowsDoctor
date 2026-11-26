@@ -74,7 +74,7 @@ export default function App() {
   return (
     <div className="app">
       <nav className="rail" aria-label="Módulos">
-        <div className="rail-brand" title="Windows Folder Map">
+        <div className="rail-brand" title="WindowsDoctor">
           <img src="/icon.svg" alt="" width="28" height="28" />
         </div>
         {MODULES.map((m) => (
