@@ -1,0 +1,61 @@
+//! Roda as partes somente leitura do `systools` no Windows de verdade e falha
+//! se algo vier vazio ou quebrado. Usado no CI (runner windows-latest):
+//!
+//! ```text
+//! cargo run -p systools --example smoke
+//! ```
+
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    let mut failures = Vec::new();
+
+    match systools::diagnostics::collect() {
+        Ok(raw) => {
+            println!("SO: {} | CPU: {} | RAM: {} bytes", raw.os, raw.cpu, raw.ram_total);
+            println!(
+                "GPUs: {} | monitores: {} | eventos: {} | discos: {}",
+                raw.gpus.len(),
+                raw.monitors.len(),
+                raw.events.len(),
+                raw.disks.len()
+            );
+            if raw.os.trim().is_empty() {
+                failures.push("diagnóstico: nome do Windows vazio".to_string());
+            }
+            if raw.cpu.trim().is_empty() {
+                failures.push("diagnóstico: processador vazio".into());
+            }
+            if raw.ram_total == 0 {
+                failures.push("diagnóstico: memória total zero".into());
+            }
+            if raw.system_total == 0 {
+                failures.push("diagnóstico: tamanho da unidade do sistema zero".into());
+            }
+            let report = systools::diagnostics::evaluate(&raw);
+            for c in &report.checks {
+                println!("[{:?}] {}: {}", c.status, c.title, c.summary);
+            }
+        }
+        Err(e) => failures.push(format!("diagnóstico: {e}")),
+    }
+
+    for t in systools::tweaks::list() {
+        println!("ajuste {}: {:?} {}", t.id, t.applied, t.error.unwrap_or_default());
+    }
+
+    match systools::startup::list() {
+        Ok(list) => println!("programas na inicialização: {}", list.len()),
+        Err(e) => failures.push(format!("inicialização: {e}")),
+    }
+
+    if failures.is_empty() {
+        println!("OK");
+        ExitCode::SUCCESS
+    } else {
+        for f in &failures {
+            eprintln!("FALHA: {f}");
+        }
+        ExitCode::FAILURE
+    }
+}
