@@ -3,6 +3,7 @@
 // remoção com propagação de tamanhos etc.) sobre uma partição fictícia.
 
 import { isProtected } from "./hints";
+import { createMockTools } from "./mockTools";
 import type {
   Api, CleanupCategory, CleanupProgress, Crumb, FileInfo, NodeKind, NodeView, Progress, ScanFinished, Stats,
 } from "./api";
@@ -254,7 +255,7 @@ const MOCK_CLEANUP: MockCategory[] = [
   { id: "crash-dumps", group: "Sistema", title: "Dumps de erro e relatórios de falha", level: "safe", needsAdmin: true,
     detail: "Relatórios de travamento (WER), minidumps, MEMORY.DMP e LiveKernelReports.",
     rel: ["Users\\voce\\AppData\\Local\\CrashDumps"] },
-  { id: "recycle-bin", group: "Sistema", title: "Lixeira", level: "safe", needsAdmin: false,
+  { id: "recycle-bin", group: "Sistema", title: "Lixeira", level: "review", needsAdmin: false,
     detail: "Esvazia a Lixeira de todas as partições.", rel: ["$Recycle.Bin"] },
   { id: "old-windows", group: "Sistema", title: "Instalações anteriores do Windows", level: "review", needsAdmin: true,
     detail: "Windows.old e restos de atualizações ($WINDOWS.~BT, $WINDOWS.~WS…). Depois disso não é mais possível voltar para a versão anterior do Windows.",
@@ -284,6 +285,8 @@ const MOCK_CLEANUP: MockCategory[] = [
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const moveCbs = new Set<(copied: number, total: number) => void>();
+
 export function createMockApi(): Api {
   let tree: MockTree | null = null;
   const progressCbs = new Set<(p: Progress) => void>();
@@ -301,6 +304,7 @@ export function createMockApi(): Api {
 
   return {
     isMock: true,
+    ...createMockTools(),
     async listDrives() {
       return [
         { mount: "C:\\", label: "Windows", fileSystem: "NTFS", total: 476 * GB, available: 38 * GB, removable: false, kind: "SSD" },
@@ -347,6 +351,62 @@ export function createMockApi(): Api {
     },
     async getPath(id) {
       return need().pathOf(id);
+    },
+    async saveScan() {
+      need();
+      return true;
+    },
+    async openScan() {
+      throw new Error("no modo demonstração não há arquivos para abrir");
+    },
+    async getChanges() {
+      need();
+      const G = 1024 ** 3;
+      return {
+        previousTimeMs: Date.now() - 12 * 86400e3,
+        previousTotal: 291 * G,
+        currentTotal: 312 * G,
+        changes: [
+          { path: "C:\\Users\\voce\\AppData\\Local\\Docker\\wsl\\disk", before: 9 * G, after: 24 * G, delta: 15 * G },
+          { path: "C:\\Users\\voce\\AppData\\Local\\Temp", before: 1.1 * G, after: 7.2 * G, delta: 6.1 * G },
+          { path: "C:\\Program Files\\Steam\\steamapps\\common\\Jogo Médio", before: 0, after: 31 * G, delta: 31 * G },
+          { path: "C:\\Users\\voce\\Downloads", before: 21.3 * G, after: 14.3 * G, delta: -7 * G },
+          { path: "C:\\Windows\\SoftwareDistribution\\Download", before: 0.4 * G, after: 3.4 * G, delta: 3 * G },
+        ].sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)),
+      };
+    },
+    async moveFolder(id, dest) {
+      const t = need();
+      const path = t.pathOf(id);
+      const total = t.nodes[id].size;
+      for (let i = 1; i <= 5; i++) {
+        moveCbs.forEach((cb) => cb((total * i) / 5, total));
+        await delay(250);
+      }
+      t.remove(id);
+      return { bytes: total, to: `${dest.replace(/\\$/, "")}\\${path.split("\\").pop()}`, leftover: null, stats: t.stats() };
+    },
+    async onMoveProgress(cb) {
+      moveCbs.add(cb);
+      return () => moveCbs.delete(cb);
+    },
+    async getExtensions() {
+      need();
+      const GBx = 1024 ** 3;
+      return [
+        { ext: "vhdx", size: 24 * GBx, count: 1 },
+        { ext: "pak", size: 61 * GBx, count: 412 },
+        { ext: "mp4", size: 22.3 * GBx, count: 214 },
+        { ext: "dll", size: 14.1 * GBx, count: 48211 },
+        { ext: "iso", size: 6.2 * GBx, count: 1 },
+        { ext: "exe", size: 4.8 * GBx, count: 3120 },
+        { ext: "jpg", size: 3.9 * GBx, count: 18820 },
+        { ext: "msi", size: 3.1 * GBx, count: 96 },
+        { ext: "zip", size: 2.2 * GBx, count: 41 },
+        { ext: "pdf", size: 1.1 * GBx, count: 930 },
+        { ext: "mp3", size: 0.9 * GBx, count: 2100 },
+        { ext: "", size: 7.4 * GBx, count: 61022 },
+      ].sort((x, y) => y.size - x.size);
     },
     async getTopFiles(limit) {
       return need().top.slice(0, limit);

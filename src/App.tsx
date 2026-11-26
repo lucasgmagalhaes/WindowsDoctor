@@ -1,396 +1,148 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { HierarchyRectangularNode } from "d3-hierarchy";
-import type { Api, CleanupRunResult, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "./api";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { Api, CleanupRunResult } from "./api";
 import { getApi } from "./api";
-import { Sunburst } from "./components/Sunburst";
-import { Treemap } from "./components/Treemap";
-import { ItemList } from "./components/ItemList";
-import { TopFiles } from "./components/TopFiles";
-import { Sidebar } from "./components/Sidebar";
-import { DeleteDialog, ScanOverlay, type DeleteTarget } from "./components/Dialogs";
-import { CleanupDialog } from "./components/Cleanup";
-import { formatBytes, formatCount, formatPercent, nodeLabel } from "./format";
+import { checkForUpdate, type UpdateInfo } from "./update";
+import { blackScreenMonitorEnabled } from "./safety";
+import { DiskMap } from "./modules/DiskMap";
+import { Cleanup } from "./modules/Cleanup";
+import { Diagnostics } from "./modules/Diagnostics";
+import { Optimize } from "./modules/Optimize";
+import { History } from "./modules/History";
 
-type RNode = HierarchyRectangularNode<NodeView>;
-type ChartMode = "sunburst" | "treemap";
-type Tab = "explore" | "top";
+export type Notify = (text: string, kind?: "ok" | "err") => void;
+export type ModuleId = "diskmap" | "cleanup" | "diagnostics" | "optimize" | "history";
 
-interface Loaded {
-  chart: NodeView;
-  list: NodeView;
-  crumbs: Crumb[];
-  path: string;
+/** O que todo módulo de ferramentas recebe do shell. */
+export interface ToolProps {
+  api: Api;
+  notify: Notify;
+  elevated: boolean;
+  onRelaunchAdmin: () => void;
+  onOpenModule: (m: ModuleId) => void;
 }
+
+const icon = (d: string) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d={d} />
+  </svg>
+);
+
+const MODULES: { id: ModuleId; label: string; icon: ReactNode }[] = [
+  { id: "diskmap", label: "Mapa do disco", icon: icon("M12 3a9 9 0 1 0 9 9h-9zM15 3.5A9 9 0 0 1 20.5 9H15z") },
+  { id: "cleanup", label: "Limpeza", icon: icon("M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5") },
+  { id: "diagnostics", label: "Diagnóstico", icon: icon("M3 12h4l2-6 4 12 2-6h6") },
+  { id: "optimize", label: "Otimizações", icon: icon("M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4") },
+  { id: "history", label: "Histórico", icon: icon("M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3") },
+];
 
 export default function App() {
   const [api, setApi] = useState<Api | null>(null);
-  const [drives, setDrives] = useState<Drive[]>([]);
-  const [scanTarget, setScanTarget] = useState<string | null>(null);
-  const [progress, setProgress] = useState<Progress | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [currentId, setCurrentId] = useState<number | null>(null);
-  const [version, setVersion] = useState(0);
-  const [data, setData] = useState<Loaded | null>(null);
-  const [topFiles, setTopFiles] = useState<FileInfo[]>([]);
-  const [mode, setMode] = useState<ChartMode>("sunburst");
-  const [tab, setTab] = useState<Tab>("explore");
-  const [hovered, setHovered] = useState<RNode | null>(null);
-  const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [elevated, setElevated] = useState(false);
+  const [active, setActive] = useState<ModuleId>("diskmap");
+  // Módulos já abertos continuam montados para não perder o estado.
+  const [visited, setVisited] = useState<Set<ModuleId>>(new Set(["diskmap"]));
+  // Muda quando a Limpeza altera o disco, para o mapa se atualizar.
+  const [cleaned, setCleaned] = useState<CleanupRunResult | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
-  const [minFileSize, setMinFileSize] = useState(1024 * 1024);
-  const rescanReturnPath = useRef<string | null>(null);
 
-  const notify = useCallback((text: string, kind: "ok" | "err" = "ok") => {
+  const notifyRef = useRef<Notify>(() => undefined);
+  const notify = useCallback<Notify>((text, kind = "ok") => {
     setToast({ text, kind });
     window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 6000);
   }, []);
+  notifyRef.current = notify;
 
-  const refreshDrives = useCallback(async (a: Api) => {
-    try {
-      setDrives(await a.listDrives());
-    } catch (e) {
-      notify(String(e), "err");
-    }
-  }, [notify]);
-
-  // Inicialização e assinatura dos eventos de varredura.
   useEffect(() => {
-    // The subscription is asynchronous: if the effect is torn down before it
-    // finishes (React StrictMode mounts twice), the listener has to be removed
-    // as soon as it is registered, otherwise each event is handled twice.
-    let disposed = false;
-    const unsub: Array<() => void> = [];
-    const keep = (u: () => void) => (disposed ? u() : unsub.push(u));
-    getApi().then(async (a) => {
-      if (disposed) return;
+    getApi().then((a) => {
       setApi(a);
-      refreshDrives(a);
-      keep(await a.onProgress(setProgress));
-      keep(
-        await a.onFinished(async (f) => {
-          setScanTarget(null);
-          setProgress(null);
-          if (!f.ok) {
-            notify(f.error ?? "Falha na varredura", "err");
-            return;
-          }
-          setStats(f.stats);
-          if (f.cancelled && !f.rescannedPath) notify("Varredura cancelada — exibindo resultado parcial.");
-          if (f.rescannedPath && rescanReturnPath.current) {
-            const id = await a.findPath(rescanReturnPath.current);
-            setCurrentId(id);
-            notify(
-              f.cancelled
-                ? "Re-análise cancelada — os dados anteriores da pasta foram mantidos."
-                : `Pasta re-analisada: ${f.rescannedPath}`,
-            );
-          } else {
-            setCurrentId(null);
-          }
-          rescanReturnPath.current = null;
-          setHovered(null);
-          setVersion((v) => v + 1);
-          refreshDrives(a);
-        }),
-      );
+      a.isElevated().then(setElevated).catch(() => setElevated(false));
+      if (!a.isMock) a.appVersion().then(checkForUpdate).then(setUpdate).catch(() => undefined);
+      if (blackScreenMonitorEnabled()) a.setBlackScreenMonitor(true).catch(() => undefined);
+      a.onBlackScreen((e) => {
+        const at = new Date(e.timeUtc).toLocaleTimeString("pt-BR");
+        notifyRef.current(
+          `Tela preta detectada às ${at}${e.foregroundApp ? ` com ${e.foregroundApp} aberto` : ""}. Registrado no Histórico.`,
+          "err",
+        );
+      });
     });
-    return () => {
-      disposed = true;
-      unsub.forEach((u) => u());
-    };
-  }, [notify, refreshDrives]);
-
-  // Carrega o nó atual (gráfico + lista + breadcrumb).
-  useEffect(() => {
-    if (!api || !stats) return;
-    let stale = false;
-    (async () => {
-      try {
-        const [chart, list] = await Promise.all([
-          api.getNode(currentId, 4, 80, 0.002),
-          api.getNode(currentId, 1, 2000, 0),
-        ]);
-        const id = list.id!;
-        const [crumbs, path, top] = await Promise.all([api.getAncestors(id), api.getPath(id), api.getTopFiles(300)]);
-        if (!stale) {
-          setData({ chart, list, crumbs, path });
-          setTopFiles(top);
-        }
-      } catch (e) {
-        if (!stale) {
-          // O nó pode ter sumido (ex.: re-varredura); volta para a raiz.
-          if (currentId != null) setCurrentId(null);
-          else notify(String(e), "err");
-        }
-      }
-    })();
-    return () => {
-      stale = true;
-    };
-  }, [api, stats, currentId, version, notify]);
-
-  const navigate = useCallback((id: number) => {
-    setHovered(null);
-    setCurrentId(id);
   }, []);
 
-  const goUp = useCallback(() => {
-    if (!data || data.crumbs.length < 2) return;
-    navigate(data.crumbs[data.crumbs.length - 2].id);
-  }, [data, navigate]);
+  const open = useCallback((m: ModuleId) => {
+    setActive(m);
+    setVisited((v) => (v.has(m) ? v : new Set(v).add(m)));
+  }, []);
 
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const typing = !!t && (t.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName));
-      if (e.key === "Backspace" && !typing && !toDelete && !cleanupOpen && !scanTarget) goUp();
-    };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [goUp, toDelete, cleanupOpen, scanTarget]);
+  const relaunchAdmin = useCallback(() => {
+    api?.relaunchAsAdmin().catch((e) => notify(String(e), "err"));
+  }, [api, notify]);
 
-  const startScan = async (path: string) => {
-    if (!api) return;
-    setScanTarget(path);
-    setProgress(null);
-    try {
-      await api.startScan({ path, minFileSize });
-    } catch (e) {
-      setScanTarget(null);
-      notify(String(e), "err");
-    }
-  };
+  if (!api) return null;
 
-  const rescan = async (id: number) => {
-    if (!api || !data) return;
-    rescanReturnPath.current = data.path;
-    setScanTarget(await api.getPath(id));
-    try {
-      await api.startScan({ nodeId: id, minFileSize });
-    } catch (e) {
-      setScanTarget(null);
-      notify(String(e), "err");
-    }
-  };
-
-  const pickFolder = async () => {
-    if (!api) return;
-    const p = await api.pickFolder();
-    if (p) startScan(p);
-  };
-
-  const reveal = (path: string, select: boolean) => api?.reveal(path, select).catch((e) => notify(String(e), "err"));
-
-  const askDeleteFile = (f: FileInfo) => setToDelete({ id: null, path: f.path, size: f.size, isDir: false });
-
-  const confirmDelete = async (permanent: boolean) => {
-    if (!api || !toDelete) return;
-    try {
-      const r = await api.deleteNode(toDelete.id != null ? { id: toDelete.id } : { path: toDelete.path }, permanent);
-      setStats(r.stats);
-      notify(
-        permanent
-          ? `${formatBytes(r.freed)} liberados.`
-          : `${formatBytes(r.freed)} enviados para a Lixeira (esvazie-a para liberar o espaço).`,
-      );
-      setToDelete(null);
-      setHovered(null);
-      setVersion((v) => v + 1);
-      refreshDrives(api);
-    } catch (e) {
-      notify(String(e), "err");
-      setToDelete(null);
-      setVersion((v) => v + 1);
-    }
-  };
-
-  const cleanupFinished = (run: CleanupRunResult) => {
-    if (!api) return;
-    // The backend already updated the folders it cleaned in the current scan.
-    if (run.stats) {
-      setStats(run.stats);
-      setHovered(null);
-      setVersion((v) => v + 1);
-    }
-    refreshDrives(api);
-  };
-
-  const scanDrive = stats ? drives.find((d) => d.mount === stats.root) : undefined;
-  const unaccounted = scanDrive ? scanDrive.total - scanDrive.available - stats!.totalSize : 0;
-  const highlightId = hovered ? hovered.ancestors().find((a) => a.depth === 1)?.data.id ?? null : null;
-  const hoverPath = hovered
-    ? hovered
-        .ancestors()
-        .reverse()
-        .slice(1)
-        .map((a) => nodeLabel(a.data))
-        .join(" › ")
-    : null;
+  const tool: ToolProps = { api, notify, elevated, onRelaunchAdmin: relaunchAdmin, onOpenModule: open };
 
   return (
     <div className="app">
-      <Sidebar
-        drives={drives}
-        activeRoot={stats?.root ?? null}
-        busy={!!scanTarget}
-        minFileSize={minFileSize}
-        onMinFileSize={setMinFileSize}
-        onScan={startScan}
-        onPickFolder={pickFolder}
-        onRefreshDrives={() => api && refreshDrives(api)}
-        onCleanup={() => setCleanupOpen(true)}
-      />
-
-      <main className="main">
-        {api?.isMock && (
-          <div className="mock-banner">Modo demonstração (navegador): dados simulados. Rode com <code>npm run tauri dev</code> para analisar o disco real.</div>
+      <nav className="rail" aria-label="Módulos">
+        <div className="rail-brand" title="WindowsDoctor">
+          <img src="/icon.svg" alt="" width="28" height="28" />
+        </div>
+        {MODULES.map((m) => (
+          <button
+            key={m.id}
+            className={`rail-btn ${active === m.id ? "on" : ""}`}
+            aria-current={active === m.id ? "page" : undefined}
+            onClick={() => open(m.id)}
+          >
+            {m.icon}
+            <span>{m.label}</span>
+          </button>
+        ))}
+        <div className="rail-spacer" />
+        {update && (
+          <button
+            className="rail-update"
+            title={`Versão ${update.version} disponível. Clique para baixar.`}
+            onClick={() => api.openUrl(update.url).catch((e) => notify(String(e), "err"))}
+          >
+            Nova versão {update.version}
+          </button>
         )}
+        <div className={`rail-admin ${elevated ? "on" : ""}`} title={elevated ? "Rodando como administrador" : "Rodando sem privilégios de administrador"}>
+          {elevated ? "Admin" : "Usuário"}
+        </div>
+      </nav>
 
-        {!stats || !data ? (
-          <div className="welcome">
-            <h1>Windows Folder Map</h1>
-            <p>Escolha uma partição à esquerda para ver onde o espaço está sendo usado, da raiz até cada pasta.</p>
-            <ul className="muted">
-              <li>O <strong>sunburst</strong> mostra cada nível como um anel; a fatia é proporcional ao tamanho.</li>
-              <li>O <strong>treemap</strong> mostra os mesmos dados como retângulos aninhados.</li>
-              <li>Clique em uma pasta para entrar nela; clique no centro ou use <kbd>Backspace</kbd> para subir.</li>
-            </ul>
+      <div className="content">
+        {api.isMock && (
+          <div className="mock-banner">
+            Modo demonstração (navegador): dados simulados. Rode com <code>npm run tauri dev</code> para usar no Windows de verdade.
           </div>
-        ) : (
-          <>
-            <header className="topbar">
-              <div className="stats">
-                <div>
-                  <span className="muted small">Analisado</span>
-                  <strong>{formatBytes(stats.totalSize)}</strong>
-                </div>
-                <div>
-                  <span className="muted small">Arquivos</span>
-                  <strong>{formatCount(stats.fileCount)}</strong>
-                </div>
-                <div>
-                  <span className="muted small">Pastas</span>
-                  <strong>{formatCount(stats.dirCount)}</strong>
-                </div>
-                <div>
-                  <span className="muted small">Tempo</span>
-                  <strong>{(stats.elapsedMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s</strong>
-                </div>
-                {stats.errors > 0 && (
-                  <div title="Pastas que não puderam ser lidas. Execute como administrador para incluí-las.">
-                    <span className="muted small">Sem acesso</span>
-                    <strong className="warn-text">{formatCount(stats.errors)}</strong>
-                  </div>
-                )}
-                {scanDrive && unaccounted > 1024 ** 3 && (
-                  <div title="Espaço usado na partição que não apareceu na varredura: arquivos de sistema (MFT, sombras de volume), pastas sem permissão ou arquivos em uso.">
-                    <span className="muted small">Não contabilizado</span>
-                    <strong className="muted">{formatBytes(unaccounted)}</strong>
-                  </div>
-                )}
-              </div>
-              <div className="tabs" role="tablist">
-                <button role="tab" aria-selected={tab === "explore"} className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>
-                  Explorar
-                </button>
-                <button role="tab" aria-selected={tab === "top"} className={tab === "top" ? "on" : ""} onClick={() => setTab("top")}>
-                  Maiores arquivos
-                </button>
-              </div>
-            </header>
-
-            {tab === "explore" ? (
-              <>
-                <nav className="crumbs" aria-label="Caminho">
-                  {data.crumbs.map((c, i) => (
-                    <span key={c.id}>
-                      {i > 0 && <span className="sep">›</span>}
-                      <button className="crumb" disabled={i === data.crumbs.length - 1} onClick={() => navigate(c.id)}>
-                        {c.name.replace(/\\$/, "") || c.name}
-                      </button>
-                    </span>
-                  ))}
-                  <span className="crumb-size">
-                    {formatBytes(data.list.size)}
-                    {data.crumbs.length > 1 && <span className="muted"> · {formatPercent(data.list.size, stats.totalSize)} do total</span>}
-                  </span>
-                  {data.crumbs.length > 1 && (
-                    <button className="icon-btn" title="Mostrar no Explorer" onClick={() => reveal(data.path, false)}>
-                      ↗
-                    </button>
-                  )}
-                </nav>
-
-                <div className="explore">
-                  <section className="chart-panel">
-                    <div className="chart-toolbar">
-                      <div className="seg-ctrl">
-                        <button className={mode === "sunburst" ? "on" : ""} onClick={() => setMode("sunburst")}>
-                          Sunburst
-                        </button>
-                        <button className={mode === "treemap" ? "on" : ""} onClick={() => setMode("treemap")}>
-                          Treemap
-                        </button>
-                      </div>
-                      <div className="hover-info" aria-live="polite">
-                        {hovered ? (
-                          <>
-                            <span className="hover-path">{hoverPath}</span>
-                            <strong>{formatBytes(hovered.data.size)}</strong>
-                            <span className="muted">{formatPercent(hovered.data.size, data.chart.size)}</span>
-                          </>
-                        ) : (
-                          <span className="muted">Passe o mouse para detalhes · clique para entrar na pasta</span>
-                        )}
-                      </div>
-                    </div>
-                    {mode === "sunburst" ? (
-                      <Sunburst
-                        data={data.chart}
-                        depth={4}
-                        hovered={hovered}
-                        onHover={setHovered}
-                        onNavigate={navigate}
-                        onUp={goUp}
-                        canGoUp={data.crumbs.length > 1}
-                      />
-                    ) : (
-                      <Treemap data={data.chart} depth={3} hovered={hovered} onHover={setHovered} onNavigate={navigate} />
-                    )}
-                  </section>
-
-                  <section className="list-panel">
-                    <h3>
-                      Conteúdo <span className="muted small">({formatCount(data.list.children.length)} itens, maior primeiro)</span>
-                    </h3>
-                    <ItemList
-                      items={data.list.children}
-                      parentPath={data.path}
-                      parentSize={data.list.size}
-                      highlightId={highlightId}
-                      onOpen={navigate}
-                      onReveal={reveal}
-                      onDelete={setToDelete}
-                      onRescan={rescan}
-                    />
-                  </section>
-                </div>
-              </>
-            ) : (
-              <section className="top-panel">
-                <TopFiles files={topFiles} onReveal={reveal} onDelete={askDeleteFile} />
-              </section>
-            )}
-          </>
         )}
-      </main>
+        <DiskMap api={api} notify={notify} active={active === "diskmap"} cleaned={cleaned} onOpenCleanup={() => open("cleanup")} />
+        {visited.has("cleanup") && (
+          <div className="module" hidden={active !== "cleanup"}>
+            <Cleanup {...tool} onCleaned={setCleaned} />
+          </div>
+        )}
+        {visited.has("diagnostics") && (
+          <div className="module" hidden={active !== "diagnostics"}>
+            <Diagnostics {...tool} />
+          </div>
+        )}
+        {visited.has("optimize") && (
+          <div className="module" hidden={active !== "optimize"}>
+            <Optimize {...tool} />
+          </div>
+        )}
+        {visited.has("history") && (
+          <div className="module" hidden={active !== "history"}>
+            <History {...tool} active={active === "history"} />
+          </div>
+        )}
+      </div>
 
-      {scanTarget && <ScanOverlay progress={progress} target={scanTarget} onCancel={() => api?.cancelScan()} />}
-      {toDelete && <DeleteDialog target={toDelete} onConfirm={confirmDelete} onClose={() => setToDelete(null)} />}
-      {cleanupOpen && api && (
-        <CleanupDialog api={api} onClose={() => setCleanupOpen(false)} onFinished={cleanupFinished} />
-      )}
       {toast && (
         <div className={`toast ${toast.kind}`} role="status" onClick={() => setToast(null)}>
           {toast.text}

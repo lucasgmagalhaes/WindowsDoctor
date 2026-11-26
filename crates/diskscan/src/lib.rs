@@ -10,8 +10,11 @@
 //! individuais: são somados em um nó "outros arquivos" por diretório. Isso
 //! mantém o uso de memória baixo em partições com milhões de arquivos.
 
+mod compare;
+mod persist;
 mod scan;
 mod tree;
 
+pub use compare::{compare, Change, Comparison, Snapshot};
 pub use scan::{scan, Progress, ProgressSnapshot, ScanOptions};
-pub use tree::{Crumb, FileInfo, NodeKind, NodeView, ScanStats, Tree};
+pub use tree::{Crumb, ExtStat, FileInfo, NodeKind, NodeView, ScanStats, Tree};

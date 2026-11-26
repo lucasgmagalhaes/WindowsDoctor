@@ -96,8 +96,8 @@ pub struct CleanupReport {
 #[serde(rename_all = "camelCase")]
 pub struct CategoryResult {
     id: String,
-    title: &'static str,
-    freed: u64,
+    pub title: &'static str,
+    pub freed: u64,
     files: u64,
     /// Items that could not be deleted (in use, no permission…).
     failed: u64,
@@ -110,18 +110,45 @@ fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
+fn is_link(meta: &std::fs::Metadata) -> bool {
+    if meta.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        meta.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT (junctions)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// Extra guard against a broken environment variable pointing the cleanup at
 /// a drive root, the Windows folder or the user profile.
 fn sane(dir: &Path) -> bool {
-    if !dir.is_absolute() || dir.components().count() < 3 {
+    if !dir.is_absolute() {
+        return false;
+    }
+    // Reject links in any component, including junctions in a parent folder.
+    if dir.ancestors().any(|p| std::fs::symlink_metadata(p).map_or(true, |m| is_link(&m))) {
+        return false;
+    }
+    let Ok(resolved) = dir.canonicalize() else { return false };
+    if resolved.components().count() < 3 {
         return false;
     }
     let lower = |p: &Path| p.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
-    let d = lower(dir);
+    let d = lower(&resolved);
     ["SystemRoot", "USERPROFILE", "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "LOCALAPPDATA", "APPDATA"]
         .iter()
         .filter_map(|v| env_path(v))
-        .all(|p| lower(&p) != d)
+        .filter_map(|p| p.canonicalize().ok())
+        .all(|p| {
+            let protected = lower(&p);
+            protected != d && !protected.starts_with(&(d.clone() + std::path::MAIN_SEPARATOR_STR))
+        })
 }
 
 fn is_temp_dir(dir: &Path) -> bool {
@@ -296,7 +323,7 @@ fn build_catalogue() -> Vec<Def> {
         group: "Sistema",
         title: "Lixeira",
         detail: "Esvazia a Lixeira de todas as partições.",
-        level: Level::Safe,
+        level: Level::Review,
         admin: false,
         services: &[],
         targets: vec![Target::RecycleBin],
@@ -564,7 +591,7 @@ fn walk(dir: &Path, min_age: Option<Duration>, delete: bool, t: &mut Tally) {
             continue;
         };
         let ft = meta.file_type();
-        if ft.is_symlink() {
+        if is_link(&meta) {
             if delete && std::fs::remove_dir(&path).or_else(|_| std::fs::remove_file(&path)).is_err() {
                 t.failed += 1;
             }
@@ -581,6 +608,9 @@ fn walk(dir: &Path, min_age: Option<Duration>, delete: bool, t: &mut Tally) {
 }
 
 fn process(target: &Target, delete: bool, t: &mut Tally) -> Result<(), String> {
+    if target.path().is_some_and(|p| !sane(p)) {
+        return Err("caminho de limpeza inseguro".into());
+    }
     match target {
         Target::Contents { dir, min_age } => walk(dir, *min_age, delete, t),
         Target::WholeDir { dir, take_ownership } => {
@@ -702,6 +732,24 @@ pub fn run(ids: &[String], mut on_start: impl FnMut(usize, &str)) -> (Vec<Catego
         });
     }
     (results, touched)
+}
+
+/// Ids the scheduled cleanup runs: only "safe" categories with something to
+/// clean that this process can reach (system folders only when elevated).
+pub fn auto_ids() -> Vec<String> {
+    let report = analyze();
+    let admin = report.is_admin;
+    report
+        .categories
+        .into_iter()
+        .filter(|c| c.level == Level::Safe && (admin || !c.needs_admin) && c.size.is_some_and(|s| s > 0))
+        .map(|c| c.id.to_string())
+        .collect()
+}
+
+/// Whether the app runs elevated (administrator).
+pub fn is_admin() -> bool {
+    win::is_admin()
 }
 
 /// Starts a new elevated instance of the app (UAC prompt).
@@ -931,6 +979,35 @@ mod tests {
         process(&contents(d.path().to_path_buf()), true, &mut t).unwrap();
         assert!(outside.path().join("keep").exists());
         assert!(!d.path().join("link").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn does_not_follow_junctions() {
+        let d = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("keep"), b"1").unwrap();
+        let root = d.path().join("Temp");
+        std::fs::create_dir(&root).unwrap();
+        let junction = |link: &Path| {
+            let output = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(outside.path())
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        };
+
+        junction(&root.join("link"));
+        let mut t = Tally::default();
+        process(&contents(root), true, &mut t).unwrap();
+        assert!(outside.path().join("keep").exists());
+
+        let linked_root = d.path().join("TempLink");
+        junction(&linked_root);
+        assert!(process(&contents(linked_root), true, &mut Tally::default()).is_err());
+        assert!(outside.path().join("keep").exists());
     }
 
     #[test]

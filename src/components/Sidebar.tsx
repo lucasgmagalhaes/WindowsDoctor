@@ -9,6 +9,7 @@ interface Props {
   onMinFileSize: (v: number) => void;
   onScan: (path: string) => void;
   onPickFolder: () => void;
+  onOpenScan: () => void;
   onRefreshDrives: () => void;
   onCleanup: () => void;
 }
@@ -20,7 +21,7 @@ const MIN_SIZES = [
   { v: 10 * 1024 * 1024, label: "10 MB" },
 ];
 
-export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, onScan, onPickFolder, onRefreshDrives, onCleanup }: Props) {
+export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, onScan, onPickFolder, onOpenScan, onRefreshDrives, onCleanup }: Props) {
   return (
     <aside className="sidebar">
       <div className="side-head">
@@ -59,6 +60,9 @@ export function Sidebar({ drives, activeRoot, busy, minFileSize, onMinFileSize, 
       </ul>
       <button className="btn block" disabled={busy} onClick={onPickFolder}>
         Analisar uma pasta…
+      </button>
+      <button className="btn block" disabled={busy} onClick={onOpenScan} title="Abre um arquivo .wdscan salvo antes, sem varrer o disco de novo">
+        Abrir varredura salva…
       </button>
       <button
         className="btn block"

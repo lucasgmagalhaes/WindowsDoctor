@@ -1,18 +1,47 @@
 mod cleanup;
 
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use diskscan::{Crumb, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanStats, Tree};
+use diskscan::{Crumb, ExtStat, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanStats, Tree};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+mod dupes;
+mod programs;
+mod tools;
 
 #[derive(Default)]
 struct AppState {
     tree: Mutex<Option<Tree>>,
     progress: Mutex<Option<Arc<Progress>>>,
+    /// Comparação da última varredura completa com a anterior do mesmo local.
+    changes: Mutex<Option<diskscan::Comparison>>,
+}
+
+/// Grava o resumo das pastas grandes desta varredura e compara com o da
+/// anterior do mesmo local (se houver).
+fn update_snapshot(app: &AppHandle, tree: &Tree) -> Option<diskscan::Comparison> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    const MB: u64 = 1024 * 1024;
+    let dir = app.path().app_local_data_dir().ok()?.join("snapshots");
+    let mut h = DefaultHasher::new();
+    tree.root_path().to_string_lossy().to_lowercase().hash(&mut h);
+    let file = dir.join(format!("{:016x}.json", h.finish()));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or_default();
+    let new = tree.snapshot(now, 100 * MB, 8);
+    let old: Option<diskscan::Snapshot> = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok());
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_vec(&new) {
+        let _ = std::fs::write(&file, json);
+    }
+    old.map(|o| diskscan::compare(&o, &new, 200 * MB, 100))
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -153,7 +182,11 @@ fn start_scan(
                                 rescanned = Some(target.to_string_lossy().into_owned());
                             }
                         }
-                        _ => *guard = Some(sub),
+                        _ => {
+                            let changes = if cancelled { None } else { update_snapshot(&app, &sub) };
+                            *state.changes.lock().unwrap() = changes;
+                            *guard = Some(sub)
+                        }
                     }
                     ScanFinished {
                         ok: true,
@@ -220,6 +253,59 @@ fn get_path(state: State<'_, Arc<AppState>>, id: u32) -> CmdResult<String> {
 #[tauri::command]
 fn get_top_files(state: State<'_, Arc<AppState>>, limit: usize) -> CmdResult<Vec<FileInfo>> {
     with_tree(&state, |t| Ok(t.top_files(limit).to_vec()))
+}
+
+fn check_scan_ext(path: &Path) -> CmdResult<()> {
+    match path.extension().map(|e| e.to_string_lossy().to_lowercase()) {
+        Some(e) if e == "wdscan" => Ok(()),
+        _ => Err("use um arquivo .wdscan".into()),
+    }
+}
+
+/// Salva a varredura atual (com as exclusões já feitas) num arquivo .wdscan.
+#[tauri::command]
+async fn save_scan(state: State<'_, Arc<AppState>>, path: String) -> CmdResult<()> {
+    let p = PathBuf::from(&path);
+    check_scan_ext(&p)?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_tree(&state, |t| {
+            let f = std::fs::File::create(&p).map_err(|e| format!("{path}: {e}"))?;
+            t.save(std::io::BufWriter::new(f)).map_err(|e| format!("{path}: {e}"))
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Abre uma varredura salva no lugar da atual.
+#[tauri::command]
+async fn open_scan(state: State<'_, Arc<AppState>>, path: String) -> CmdResult<ScanStats> {
+    let p = PathBuf::from(&path);
+    check_scan_ext(&p)?;
+    if state.progress.lock().map_err(|e| e.to_string())?.is_some() {
+        return Err("aguarde a varredura em andamento terminar".into());
+    }
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let f = std::fs::File::open(&p).map_err(|e| format!("{path}: {e}"))?;
+        let tree = Tree::load(std::io::BufReader::new(f)).map_err(|e| format!("{path}: {e}"))?;
+        let stats = tree.stats();
+        *state.tree.lock().map_err(|e| e.to_string())? = Some(tree);
+        Ok(stats)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn get_changes(state: State<'_, Arc<AppState>>) -> Option<diskscan::Comparison> {
+    state.changes.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn get_extensions(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<ExtStat>> {
+    with_tree(&state, |t| Ok(t.extensions().to_vec()))
 }
 
 #[tauri::command]
@@ -298,11 +384,13 @@ struct DeleteResult {
 #[tauri::command]
 async fn delete_node(
     state: State<'_, Arc<AppState>>,
+    history: State<'_, Arc<systools::history::History>>,
     id: Option<u32>,
     path: Option<String>,
     permanent: bool,
 ) -> CmdResult<DeleteResult> {
     let state = state.inner().clone();
+    let history = history.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let path = with_tree(&state, |t| {
             let (id, path) = match (id, path) {
@@ -344,6 +432,16 @@ async fn delete_node(
         with_tree(&state, |t| match res {
             Ok(()) => {
                 let freed = t.remove_path(&path).unwrap_or(0);
+                history.record(
+                    "delete",
+                    format!(
+                        "{} {}",
+                        if permanent { "Excluído permanentemente:" } else { "Enviado para a Lixeira:" },
+                        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                    ),
+                    format!("{} · {}", path.display(), systools::history::fmt_bytes(freed)),
+                    None,
+                );
                 Ok(DeleteResult {
                     freed,
                     stats: t.stats(),
@@ -402,17 +500,27 @@ struct CleanupRunResult {
 async fn cleanup_run(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
+    history: State<'_, Arc<systools::history::History>>,
     ids: Vec<String>,
 ) -> CmdResult<CleanupRunResult> {
     if state.progress.lock().map_err(|e| e.to_string())?.is_some() {
         return Err("aguarde a varredura em andamento terminar".into());
     }
     let state = state.inner().clone();
+    let history = history.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let total = ids.len();
         let (results, touched) = cleanup::run(&ids, |index, title| {
             let _ = app.emit("cleanup-progress", CleanupProgress { index, total, title: title.into() });
         });
+        let freed: u64 = results.iter().map(|r| r.freed).sum();
+        let names: Vec<&str> = results.iter().map(|r| r.title).collect();
+        history.record(
+            "cleanup",
+            format!("Limpeza automática: {} liberados", systools::history::fmt_bytes(freed)),
+            names.join(", "),
+            None,
+        );
         let mut guard = state.tree.lock().map_err(|e| e.to_string())?;
         if let Some(t) = guard.as_mut() {
             for path in touched {
@@ -443,6 +551,143 @@ fn relaunch_as_admin(app: AppHandle) -> CmdResult<()> {
     Ok(())
 }
 
+/// Abre um link do projeto no navegador padrão. Só aceita páginas do GitHub,
+/// para o frontend não conseguir abrir qualquer coisa.
+#[tauri::command]
+fn open_url(url: String) -> CmdResult<()> {
+    if !url.starts_with("https://github.com/") || url.contains('"') || url.contains(' ') {
+        return Err("link não permitido".into());
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(opener).arg(&url).spawn().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Grava um relatório exportado. Só aceita arquivos .html, escolhidos pelo
+/// usuário na janela de salvar.
+#[tauri::command]
+fn save_report(path: String, content: String) -> CmdResult<()> {
+    let p = PathBuf::from(&path);
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase());
+    if ext.as_deref() != Some("html") && ext.as_deref() != Some("htm") {
+        return Err("o relatório só pode ser salvo como .html".into());
+    }
+    std::fs::write(&p, content).map_err(|e| format!("falha ao salvar {path}: {e}"))
+}
+
+// ---------------------------------------------------------------- mover pasta
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MoveResult {
+    bytes: u64,
+    to: String,
+    leftover: Option<String>,
+    stats: ScanStats,
+}
+
+/// Move a pasta `id` da varredura para `dest` (outro disco) deixando um link
+/// no lugar. Emite `move-progress` com `[copiado, total]`.
+#[tauri::command]
+async fn move_folder(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    history: State<'_, Arc<systools::history::History>>,
+    id: u32,
+    dest: String,
+) -> CmdResult<MoveResult> {
+    let src = with_tree(&state, |t| {
+        if t.kind(id) != Some(NodeKind::Dir) || id == t.root_id() {
+            return Err("escolha uma pasta dentro da varredura".into());
+        }
+        t.path_of(id).ok_or_else(|| "pasta não encontrada".into())
+    })?;
+    let state = state.inner().clone();
+    let history = history.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut last = std::time::Instant::now();
+        let moved = systools::relocate::move_with_link(&src, Path::new(&dest), |c, t| {
+            if last.elapsed() >= Duration::from_millis(200) || c == t {
+                last = std::time::Instant::now();
+                let _ = app.emit("move-progress", (c, t));
+            }
+        })?;
+        history.record(
+            "move",
+            format!("Pasta movida: {}", moved.from.display()),
+            format!(
+                "Para {} ({}); um link no lugar original aponta para lá",
+                moved.to.display(),
+                systools::history::fmt_bytes(moved.bytes)
+            ),
+            None,
+        );
+        with_tree(&state, |t| {
+            // O link é ignorado pelo scanner: o espaço saiu desta varredura.
+            t.remove_path(&moved.from);
+            Ok(MoveResult {
+                bytes: moved.bytes,
+                to: moved.to.display().to_string(),
+                leftover: moved.leftover.map(|p| p.display().to_string()),
+                stats: t.stats(),
+            })
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------- limpeza agendada
+
+/// Pasta de dados do app, a mesma que o Tauri usa (`%LOCALAPPDATA%\<id>`).
+fn data_dir_without_tauri() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("com.windowsfoldermap.app"))
+}
+
+/// Modo sem janela usado pela tarefa agendada. Devolve o código de saída.
+pub fn run_auto_cleanup() -> i32 {
+    let history = systools::history::History::load(data_dir_without_tauri().map(|d| d.join("history.json")));
+    let ids = cleanup::auto_ids();
+    let (results, _) = cleanup::run(&ids, |_, _| {});
+    let freed: u64 = results.iter().map(|r| r.freed).sum();
+    history.record(
+        "cleanup",
+        format!("Limpeza agendada: {} liberados", systools::history::fmt_bytes(freed)),
+        results.iter().map(|r| r.title).collect::<Vec<_>>().join(", "),
+        None,
+    );
+    0
+}
+
+#[tauri::command]
+async fn cleanup_schedule_status() -> CmdResult<systools::schedule::ScheduleInfo> {
+    tauri::async_runtime::spawn_blocking(systools::schedule::status)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn set_cleanup_schedule(
+    frequency: Option<systools::schedule::Frequency>,
+) -> CmdResult<systools::schedule::ScheduleInfo> {
+    tauri::async_runtime::spawn_blocking(move || match frequency {
+        Some(f) => systools::schedule::enable(f, cleanup::is_admin()),
+        None => systools::schedule::disable().and_then(|_| systools::schedule::status()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---------------------------------------------------------------- app
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -450,6 +695,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState::default()))
+        .manage(tools::RestoreSession::default())
+        .manage(tools::BlackScreenMonitor::default())
+        .manage(tools::RepairRunning::default())
+        .manage(Arc::new(dupes::DupState::default()))
+        .manage(Arc::new(programs::ProgramsState::default()))
+        .setup(|app| {
+            let path = app.path().app_local_data_dir().ok().map(|d| d.join("history.json"));
+            app.manage(Arc::new(systools::history::History::load(path)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_drives,
             start_scan,
@@ -460,11 +715,44 @@ pub fn run() {
             get_path,
             get_top_files,
             find_path,
+            get_extensions,
+            get_changes,
+            save_scan,
+            move_folder,
+            open_scan,
             reveal_path,
             delete_node,
+            tools::is_elevated,
+            tools::system_report,
+            tools::network_test,
+            tools::run_repair,
+            tools::shadow_info,
+            tools::boot_report,
+            tools::delete_old_shadows,
+            tools::set_shadow_limit,
+            dupes::find_duplicates,
+            dupes::cancel_duplicates,
+            dupes::delete_duplicates,
+            programs::list_programs,
+            programs::uninstall_program,
+            programs::find_leftovers,
+            programs::delete_leftovers,
+            tools::list_tweaks,
+            tools::set_tweak,
+            tools::list_startup,
+            tools::set_startup,
+            tools::ensure_restore_point,
+            tools::list_history,
+            tools::undo_history,
+            tools::clear_history,
+            tools::set_black_screen_monitor,
             cleanup_analyze,
             cleanup_run,
             relaunch_as_admin,
+            open_url,
+            save_report,
+            cleanup_schedule_status,
+            set_cleanup_schedule,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");

@@ -1,0 +1,401 @@
+// Dados simulados dos módulos Limpeza, Diagnóstico e Otimizações para
+// desenvolver a interface no navegador.
+
+import type { Api, DuplicateGroup, HistoryEntry, Program, Report, StartupEntry, Tweak } from "./api";
+
+const GB = 1024 ** 3;
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const report: Report = {
+  summary: {
+    os: "Microsoft Windows 11 Pro 10.0.22631",
+    cpu: "AMD Ryzen 7 5800X3D 8-Core Processor",
+    ramTotal: 32 * GB,
+    ramFree: 17.4 * GB,
+    uptimeSecs: 9 * 86400 + 3 * 3600,
+    gpus: [
+      {
+        name: "NVIDIA GeForce RTX 3070",
+        driverVersion: "31.0.15.3623",
+        driverDate: "2023-06-14",
+        driverAgeDays: 420,
+        refreshRate: 165,
+        width: 2560,
+        height: 1440,
+      },
+    ],
+    monitors: [
+      { manufacturer: "AUS", name: "VG27AQ1A", connection: "DisplayPort" },
+      { manufacturer: "SAM", name: "S24R35x", connection: "HDMI" },
+    ],
+    disks: [
+      { name: "Samsung SSD 980 1TB", mediaType: "SSD", health: "Healthy", size: 1000 * GB, temperature: 41, wear: 7, powerOnHours: 8812 },
+      { name: "ST2000DM008", mediaType: "HDD", health: "Healthy", size: 2000 * GB, temperature: 36, wear: null, powerOnHours: 21430 },
+    ],
+    temps: [{ label: "NVIDIA GeForce RTX 3070", celsius: 47 }],
+    battery: null,
+  },
+  monitorsDdc: [
+    { description: "Generic PnP Monitor", model: "VG27AQ1A", firmware: "1.02", mccsVersion: "2.2", ddc: true },
+    { description: "Generic PnP Monitor", model: null, firmware: null, mccsVersion: null, ddc: false },
+  ],
+  checks: [
+    {
+      id: "bsod",
+      title: "Telas azuis",
+      status: "warn",
+      summary: "1 tela azul nos últimos 30 dias. A mais frequente é VIDEO_TDR_FAILURE (1 vez).",
+      details: ["2026-11-12 21:03  0x116 VIDEO_TDR_FAILURE: driver ou placa de vídeo (a mesma causa das telas pretas de 2 segundos)"],
+      actions: [
+        "As telas azuis apontam para o vídeo: faça uma instalação limpa do driver (DDU) e tire overclock da placa.",
+        "Para descobrir o driver exato, abra os minidumps com o WinDbg (Microsoft Store) ou o BlueScreenView.",
+      ],
+      tweak: null,
+      module: null,
+    },
+    {
+      id: "devices",
+      title: "Dispositivos com problema",
+      status: "warn",
+      summary: "1 dispositivo com erro no Gerenciador de Dispositivos.",
+      details: ["Hub USB genérico [USB]: código 43 — o Windows parou o dispositivo porque ele relatou problemas"],
+      actions: ["Código 43 em vídeo ou USB: reinstale o driver e teste outra porta ou cabo."],
+      tweak: null,
+      module: null,
+    },
+    {
+      id: "display_driver",
+      title: "Tela preta / driver de vídeo",
+      status: "crit",
+      summary:
+        "O driver de vídeo travou e se recuperou 6 vezes nos últimos 30 dias (4 nos últimos 7). Cada recuperação deixa a tela preta por cerca de 2 segundos.",
+      details: [
+        "2026-11-21 22:14  (Display 4101)",
+        "2026-11-20 19:02  (Display 4101)",
+        "2026-11-18 21:47  (nvlddmkm 153)",
+        "2026-11-16 20:31  (Display 4101)",
+      ],
+      actions: [
+        "Compare os horários abaixo com os momentos em que a tela apagou.",
+        "Faça uma instalação limpa do driver de vídeo (DDU no Modo de Segurança + driver do site do fabricante).",
+        "Remova overclock/undervolt da placa de vídeo e verifique a temperatura dela em jogo.",
+        "Troque o cabo (DisplayPort certificado VESA ou HDMI Ultra High Speed) e teste outra porta da placa.",
+      ],
+      tweak: "disable_mpo",
+      module: null,
+    },
+    {
+      id: "driver_age",
+      title: "Driver da placa de vídeo",
+      status: "warn",
+      summary: "O driver de NVIDIA GeForce RTX 3070 tem 14 meses.",
+      details: ["NVIDIA GeForce RTX 3070: driver 31.0.15.3623 de 2023-06-14"],
+      actions: ["Baixe o driver mais recente no site da NVIDIA, AMD ou Intel (o do Windows Update costuma ser antigo)."],
+      tweak: null,
+      module: null,
+    },
+    {
+      id: "mpo",
+      title: "Multiplane Overlay (piscadas)",
+      status: "info",
+      summary:
+        "O MPO (Multiplane Overlay) está ativado. Em placas NVIDIA ele é uma causa conhecida de piscadas e telas pretas rápidas, principalmente com vários monitores ou taxas diferentes.",
+      details: [],
+      actions: ["Se você tem piscadas ou telas pretas, desative o MPO e reinicie. É reversível."],
+      tweak: "disable_mpo",
+      module: null,
+    },
+    {
+      id: "uptime",
+      title: "Tempo ligado",
+      status: "info",
+      summary:
+        'Último reinício há 9 dias. Com a Inicialização Rápida ligada, "Desligar" não zera o sistema; só "Reiniciar" zera.',
+      details: [],
+      actions: ["Reinicie o PC (Reiniciar, não Desligar) para aplicar atualizações e liberar recursos."],
+      tweak: "disable_fast_startup",
+      module: null,
+    },
+    {
+      id: "free_space",
+      title: "Espaço na unidade do sistema",
+      status: "warn",
+      summary: "C: tem 38,0 GB livres (8%). Abaixo de 10% o Windows fica lento e as atualizações falham.",
+      details: [],
+      actions: ["Use a Limpeza para apagar temporários e caches.", "Use o Mapa do disco para achar o que ocupa mais espaço."],
+      tweak: null,
+      module: "cleanup",
+    },
+    { id: "whea", title: "Erros de hardware (WHEA)", status: "ok", summary: "Nenhum erro de hardware registrado nos últimos 30 dias.", details: [], actions: [], tweak: null, module: null },
+    { id: "kernel_power", title: "Desligamentos inesperados", status: "ok", summary: "Nenhum desligamento inesperado nos últimos 30 dias.", details: [], actions: [], tweak: null, module: null },
+    {
+      id: "disks",
+      title: "Saúde dos discos",
+      status: "ok",
+      summary: "Discos saudáveis e sem erros nos últimos 30 dias.",
+      details: ["Samsung SSD 980 1TB (SSD): saudável", "ST2000DM008 (HDD): saudável"],
+      actions: [],
+      tweak: null,
+      module: null,
+    },
+    { id: "memory", title: "Memória", status: "ok", summary: "14,6 GB de 32,0 GB em uso (46%).", details: [], actions: [], tweak: null, module: null },
+    { id: "app_crashes", title: "Programas que travaram", status: "ok", summary: "Nenhum programa travou nos últimos 7 dias.", details: [], actions: [], tweak: null, module: null },
+  ],
+};
+
+const tweaks: Tweak[] = [
+  ["disable_mpo", "Desativar Multiplane Overlay (MPO)", "Corrige piscadas e telas pretas rápidas que acontecem em muitas placas NVIDIA, principalmente com dois monitores ou taxas de atualização diferentes. Custo: um pouco mais de uso da GPU em vídeos.", "Vídeo", true, true, false],
+  ["disable_fast_startup", "Desativar Inicialização Rápida", 'Com ela ligada, "Desligar" hiberna o núcleo do Windows em vez de desligar de verdade, o que mantém drivers com problema carregados e pode causar falhas ao ligar. O boot fica alguns segundos mais lento.', "Sistema", true, false, false],
+  ["high_performance_plan", "Plano de energia Alto Desempenho", "Mantém o processador em frequências altas e reduz atrasos ao sair do repouso. Aumenta o consumo e o calor; em notebooks, prefira só na tomada. Desfazer volta para o plano Equilibrado.", "Energia", false, false, false],
+  ["pcie_aspm_off", "Desligar economia de energia do PCI Express", "Impede que o link com a placa de vídeo e o SSD NVMe entre em economia. Ajuda em telas pretas, travadinhas e quedas da placa de vídeo. Vale para o plano de energia atual, na tomada.", "Energia", false, false, false],
+  ["disable_usb_selective_suspend", "Desligar suspensão seletiva de USB", "Evita que o Windows desligue portas USB para economizar energia. Ajuda quando mouse, headset ou o hub USB do monitor desconectam sozinhos (e é necessário para algumas ferramentas de firmware). Vale para o plano atual, na tomada.", "Energia", false, false, true],
+  ["game_mode", "Modo de Jogo", "O Windows prioriza o jogo aberto e adia atualizações e notificações enquanto você joga.", "Jogos", false, false, true],
+  ["disable_game_dvr", "Desativar gravação em segundo plano (Game DVR)", 'A Xbox Game Bar pode gravar o jogo o tempo todo para os "clipes", o que custa desempenho. Desative se não usa esse recurso.', "Jogos", false, false, false],
+  ["hags", "Agendamento de GPU acelerado por hardware", "A placa de vídeo gerencia a própria memória, o que reduz a latência e é exigido pela Geração de Quadros (DLSS 3/FSR 3). Em alguns drivers causa travadinhas ou telas pretas: se isso começar depois de ligar, desligue.", "Vídeo", true, true, true],
+  ["windowed_game_optimizations", "Otimizações para jogos em janela", "Faz jogos DirectX 10/11 em janela ou tela cheia sem bordas usarem o modo de apresentação moderno: menos latência e suporte a HDR automático e VRR.", "Vídeo", false, false, false],
+  ["windowed_vrr", "Taxa variável (VRR) em jogos em janela", "Ativa G-SYNC/FreeSync também em jogos em janela. Em alguns monitores provoca piscadas de brilho ou telas pretas rápidas: se você tem esse problema, deixe desligado.", "Vídeo", false, false, true],
+  ["visual_effects_performance", "Efeitos visuais para melhor desempenho", "Desliga animações, sombras e transparências do Windows. Ajuda em PCs mais fracos; o visual fica mais simples. Vale depois de sair da conta e entrar de novo.", "Sistema", false, true, false],
+  ["disable_advertising_id", "Desativar o ID de publicidade", "Impede que apps usem um identificador do seu PC para mostrar anúncios personalizados.", "Privacidade", false, false, false],
+  ["disable_tailored_experiences", "Desativar experiências personalizadas", "A Microsoft deixa de usar os dados de diagnóstico para sugestões, dicas e ofertas.", "Privacidade", false, false, false],
+  ["disable_suggested_apps", "Parar apps sugeridos e instalados sozinhos", "Impede que o Windows instale apps promovidos e mostre sugestões no Iniciar e nas Configurações.", "Privacidade", false, false, false],
+  ["disable_web_search", "Tirar a busca da web do Iniciar", "A busca do Iniciar mostra só resultados do PC, sem enviar o que você digita para o Bing. Vale depois de reiniciar.", "Privacidade", false, true, false],
+  ["disable_activity_history", "Desativar o histórico de atividades", "O Windows deixa de registrar os apps e arquivos que você abre na linha do tempo.", "Privacidade", true, false, false],
+  ["minimal_telemetry", "Telemetria no mínimo", "Limita os dados de diagnóstico enviados à Microsoft ao obrigatório. O Windows Update e a segurança continuam funcionando normalmente.", "Privacidade", true, false, false],
+  ["disable_hibernation", "Desativar hibernação", "Apaga o hiberfil.sys e libera espaço (cerca de 40% da memória RAM). Também desliga a Inicialização Rápida. Em notebooks você perde a opção Hibernar.", "Armazenamento", true, false, false],
+].map(([id, title, description, category, needsAdmin, needsRestart, applied]) => ({
+  id, title, description, category, needsAdmin, needsRestart, applied, error: null,
+} as Tweak));
+
+const startup: StartupEntry[] = [
+  { id: "0:Discord", name: "Discord", command: '"C:\\Users\\voce\\AppData\\Local\\Discord\\Update.exe" --processStart Discord.exe', location: "Registro (este usuário)", enabled: true, needsAdmin: false },
+  { id: "0:Spotify", name: "Spotify", command: '"C:\\Users\\voce\\AppData\\Roaming\\Spotify\\Spotify.exe" /minimized', location: "Registro (este usuário)", enabled: true, needsAdmin: false },
+  { id: "0:Steam", name: "Steam", command: '"C:\\Program Files (x86)\\Steam\\steam.exe" -silent', location: "Registro (este usuário)", enabled: false, needsAdmin: false },
+  { id: "1:SecurityHealth", name: "SecurityHealth", command: "%windir%\\system32\\SecurityHealthSystray.exe", location: "Registro (todos os usuários)", enabled: true, needsAdmin: true },
+  { id: "task:\\ASUS\\ArmouryCrateUpdater", name: "ArmouryCrateUpdater", command: "C:\\Program Files\\ASUS\\ArmouryCrate\\Updater.exe /silent", location: "Tarefa agendada (ao entrar ou ligar)", enabled: true, needsAdmin: true },
+  { id: "svc:Steam Client Service", name: "Steam Client Service", command: '"C:\\Program Files (x86)\\Common Files\\Steam\\steamservice.exe" /RunAsService', location: "Serviço de outro fabricante (início automático)", enabled: true, needsAdmin: true },
+  { id: "2:DisplayWidget Center", name: "DisplayWidget Center", command: '"C:\\Program Files (x86)\\ASUS\\DisplayWidget Center\\DisplayWidgetCenter.exe" -startup', location: "Registro 32 bits (todos os usuários)", enabled: true, needsAdmin: true },
+];
+
+
+type Tools = Pick<
+  Api,
+  | "isElevated" | "bootReport" | "shadowInfo" | "deleteOldShadows" | "setShadowLimit" | "listPrograms" | "uninstallProgram" | "findLeftovers" | "deleteLeftovers" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "listStartup" | "setStartup"
+>;
+
+const history: HistoryEntry[] = [
+  { id: 3, timeMs: Date.now() - 3600e3, kind: "startup", title: "Desativado na inicialização: Steam", detail: "", undo: { type: "startup", id: "0:Steam", enabled: true }, undone: false },
+  { id: 2, timeMs: Date.now() - 86400e3, kind: "cleanup", title: "Limpeza automática: 9,8 GB liberados", detail: "Arquivos temporários do usuário, Cache dos navegadores", undo: null, undone: false },
+  { id: 1, timeMs: Date.now() - 2 * 86400e3, kind: "restore", title: "Ponto de restauração criado", detail: "Desativar Multiplane Overlay (MPO)", undo: null, undone: false },
+];
+
+function log(kind: string, title: string, undo: HistoryEntry["undo"]) {
+  history.unshift({ id: Date.now(), timeMs: Date.now(), kind, title, detail: "", undo, undone: false });
+}
+
+const repairCbs = new Set<(p: { line: string; percent: number | null }) => void>();
+
+const dupCbs = new Set<(p: { files: number; hashed: number }) => void>();
+let dupGroups: DuplicateGroup[] = [
+  { size: 4.3 * GB, wasted: 4.3 * GB, paths: ["C:\\Users\\voce\\Downloads\\Win11_23H2.iso", "C:\\Users\\voce\\Desktop\\Win11_23H2 (1).iso"] },
+  { size: 1.2 * GB, wasted: 2.4 * GB, paths: ["C:\\Users\\voce\\Videos\\ferias.mp4", "C:\\Users\\voce\\Downloads\\ferias.mp4", "D:\\Backup\\ferias.mp4"] },
+  { size: 230 * 1024 ** 2, wasted: 230 * 1024 ** 2, paths: ["C:\\Users\\voce\\Downloads\\setup.exe", "C:\\Users\\voce\\Downloads\\setup (2).exe"] },
+];
+
+let schedule = { enabled: false, nextRun: null as string | null };
+
+let programs: Program[] = [
+  { id: "0|Steam", name: "Steam", publisher: "Valve Corporation", version: "2.10.91.91", installDate: "2024-03-02", size: 1.1 * GB, installLocation: "C:\\Program Files (x86)\\Steam", uninstall: "C:\\Program Files (x86)\\Steam\\uninstall.exe" },
+  { id: "0|Adobe", name: "Adobe Photoshop 2025", publisher: "Adobe Inc.", version: "26.1", installDate: "2025-10-11", size: 5.6 * GB, installLocation: "C:\\Program Files\\Adobe\\Adobe Photoshop 2025", uninstall: "C:\\Program Files\\Common Files\\Adobe\\Installer\\Uninstaller.exe" },
+  { id: "2|Spotify", name: "Spotify", publisher: "Spotify AB", version: "1.2.50", installDate: null, size: 380 * 1024 ** 2, installLocation: null, uninstall: "Spotify.exe /uninstall" },
+  { id: "1|7zip", name: "7-Zip 24.08 (x64)", publisher: "Igor Pavlov", version: "24.08", installDate: "2024-09-01", size: 5.8 * 1024 ** 2, installLocation: "C:\\Program Files\\7-Zip", uninstall: "C:\\Program Files\\7-Zip\\Uninstall.exe" },
+  { id: "1|DWC", name: "DisplayWidget Center", publisher: "ASUSTeK COMPUTER INC.", version: "3.3.4", installDate: "2025-11-20", size: null, installLocation: null, uninstall: "MsiExec.exe /X{ABC}" },
+].sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
+
+const shadow = {
+  drive: "C:",
+  used: 14.2 * GB,
+  max: 23.8 * GB,
+  driveSize: 476 * GB,
+  copies: 4,
+  restorePoints: [
+    { sequence: 41, description: "Windows Update", time: "2026-11-24 03:12" },
+    { sequence: 40, description: "Instalado NVIDIA Graphics Driver", time: "2026-11-10 21:40" },
+    { sequence: 39, description: "Windows Update", time: "2026-10-28 03:05" },
+  ],
+};
+
+export function createMockTools(): Tools {
+  return {
+    async shadowInfo() {
+      await delay(400);
+      return structuredClone(shadow);
+    },
+    async deleteOldShadows() {
+      throw new Error("precisa do app aberto como administrador");
+    },
+    async setShadowLimit() {
+      throw new Error("precisa do app aberto como administrador");
+    },
+    async listPrograms() {
+      await delay(500);
+      return programs.map((p) => ({ ...p }));
+    },
+    async uninstallProgram(id) {
+      await delay(300);
+      programs = programs.filter((p) => p.id !== id);
+    },
+    async findLeftovers(id) {
+      await delay(300);
+      return id === "0|Steam" ? [["C:\\Program Files (x86)\\Steam", 340 * 1024 ** 2], ["C:\\Users\\voce\\AppData\\Local\\Steam", 120 * 1024 ** 2]] : [];
+    },
+    async deleteLeftovers() {
+      return 460 * 1024 ** 2;
+    },
+    async cleanupScheduleStatus() {
+      return { ...schedule };
+    },
+    async setCleanupSchedule(f) {
+      schedule = f ? { enabled: true, nextRun: "30/11/2026 12:00:00" } : { enabled: false, nextRun: null };
+      return { ...schedule };
+    },
+    async findDuplicates() {
+      for (let i = 1; i <= 5; i++) {
+        dupCbs.forEach((cb) => cb({ files: i * 2311, hashed: i * 40 }));
+        await delay(250);
+      }
+      return dupGroups.map((g) => ({ ...g, paths: [...g.paths] }));
+    },
+    async cancelDuplicates() {},
+    async deleteDuplicates(paths) {
+      let freed = 0;
+      dupGroups = dupGroups
+        .map((g) => {
+          const keep = g.paths.filter((p) => !paths.includes(p));
+          freed += g.size * (g.paths.length - keep.length);
+          return { ...g, paths: keep, wasted: g.size * (keep.length - 1) };
+        })
+        .filter((g) => g.paths.length > 1);
+      return freed;
+    },
+    async onDuplicatesProgress(cb) {
+      dupCbs.add(cb);
+      return () => dupCbs.delete(cb);
+    },
+    async runRepair(kind) {
+      if (kind !== "memory") throw new Error("este reparo precisa do app aberto como administrador");
+      for (let i = 0; i <= 100; i += 25) {
+        repairCbs.forEach((cb) => cb({ line: `Simulação ${i}%`, percent: i }));
+        await delay(200);
+      }
+      return { kind, title: "Teste de memória do Windows", exitCode: 0, ok: true, tail: ["Escolha na janela do Windows quando reiniciar."] };
+    },
+    async onRepairProgress(cb) {
+      repairCbs.add(cb);
+      return () => repairCbs.delete(cb);
+    },
+    async setBlackScreenMonitor() {},
+    async onBlackScreen() {
+      return () => undefined;
+    },
+    async networkTest() {
+      await delay(1500);
+      return {
+        checks: [
+          { id: "net_wifi", title: "Sinal do Wi-Fi", status: "info", summary: "Sinal de 54% na rede Casa_5G.", details: [], actions: ["Sinal fraco causa quedas e lentidão: aproxime-se do roteador ou use um repetidor/mesh."], tweak: null, module: null },
+          { id: "net_router", title: "Rede local (roteador)", status: "ok", summary: "Roteador respondendo bem: média 3 ms, sem perda.", details: ["Roteador (192.168.0.1): 20/20 respostas, média 3 ms, pico 9 ms", "Internet (Cloudflare) (1.1.1.1): 20/20 respostas, média 14 ms, pico 31 ms"], actions: [], tweak: null, module: null },
+          { id: "net_internet", title: "Internet", status: "ok", summary: "Internet estável: 14 ms, sem perda relevante.", details: [], actions: [], tweak: null, module: null },
+          { id: "net_dns", title: "DNS", status: "ok", summary: "DNS respondendo em 22 ms.", details: ["Servidores DNS: 192.168.0.1"], actions: [], tweak: null, module: null },
+        ],
+      };
+    },
+    async exportHtml(name, html) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      a.download = name;
+      a.click();
+      return true;
+    },
+    async appVersion() {
+      return "0.1.0";
+    },
+    async openUrl(url) {
+      window.open(url, "_blank");
+    },
+    async ensureRestorePoint() {
+      return { kind: "notAdmin" };
+    },
+    async listHistory() {
+      return history.map((h) => ({ ...h }));
+    },
+    async undoHistory(id) {
+      const h = history.find((x) => x.id === id);
+      if (!h?.undo) throw new Error("esta ação não pode ser desfeita pelo app");
+      h.undone = true;
+      const u = h.undo;
+      if (u.type === "tweak") {
+        const t = tweaks.find((x) => x.id === u.id)!;
+        t.applied = u.apply;
+        log("tweak", `${u.apply ? "Aplicado" : "Desfeito"}: ${t.title}`, { ...u, apply: !u.apply });
+      } else {
+        const s = startup.find((x) => x.id === u.id)!;
+        s.enabled = u.enabled;
+        log("startup", `${u.enabled ? "Ativado" : "Desativado"} na inicialização: ${s.name}`, { ...u, enabled: !u.enabled });
+      }
+    },
+    async clearHistory() {
+      history.length = 0;
+    },
+    async isElevated() {
+      return false;
+    },
+    async relaunchAsAdmin() {
+      throw new Error("no modo demonstração não dá para reabrir como administrador");
+    },
+    async systemReport() {
+      await delay(900);
+      return structuredClone(report);
+    },
+    async listTweaks() {
+      await delay(250);
+      return tweaks.map((t) => ({ ...t }));
+    },
+    async setTweak(id, apply) {
+      await delay(300);
+      const t = tweaks.find((x) => x.id === id);
+      if (!t) throw new Error(`otimização desconhecida: ${id}`);
+      if (t.needsAdmin) throw new Error("acesso negado: execute o app como administrador");
+      t.applied = apply;
+      log("tweak", `${apply ? "Aplicado" : "Desfeito"}: ${t.title}`, { type: "tweak", id, apply: !apply });
+      return { ...t };
+    },
+    async bootReport() {
+      await delay(600);
+      return {
+        boots: [
+          { time: "2026-11-26 08:02", bootMs: 48200, mainPathMs: 21300, postBootMs: 26900 },
+          { time: "2026-11-25 07:58", bootMs: 51800, mainPathMs: 22100, postBootMs: 29700 },
+          { time: "2026-11-24 08:10", bootMs: 39900, mainPathMs: 19800, postBootMs: 20100 },
+        ],
+        avgMs: 46600,
+        slow: [
+          { kind: "app", name: "Discord", file: "Update.exe", times: 4, avgMs: 5200 },
+          { kind: "app", name: "Armoury Crate", file: "ArmouryCrate.exe", times: 3, avgMs: 7100 },
+          { kind: "service", name: "Serviço de Atualização do Steam", file: "steamservice.exe", times: 2, avgMs: 2400 },
+        ],
+      };
+    },
+    async listStartup() {
+      await delay(200);
+      return startup.map((s) => ({ ...s }));
+    },
+    async setStartup(id, enabled) {
+      await delay(150);
+      const s = startup.find((x) => x.id === id);
+      if (!s) throw new Error("o programa não está mais na inicialização");
+      if (s.needsAdmin) throw new Error("acesso negado: execute o app como administrador");
+      s.enabled = enabled;
+      log("startup", `${enabled ? "Ativado" : "Desativado"} na inicialização: ${s.name}`, { type: "startup", id, enabled: !enabled });
+    },
+  };
+}

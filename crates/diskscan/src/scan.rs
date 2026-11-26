@@ -1,5 +1,5 @@
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -9,7 +9,17 @@ use std::time::Instant;
 use rayon::prelude::*;
 use serde::Serialize;
 
-use crate::tree::{FileInfo, Tree};
+use crate::tree::{ExtStat, FileInfo, Tree};
+
+/// Extensão em minúsculas; "" para nomes sem ponto ou extensões estranhas.
+pub(crate) fn extension_of(name: &str) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() && ext.len() <= 10 && !ext.contains(' ') => {
+            ext.to_lowercase()
+        }
+        _ => String::new(),
+    }
+}
 
 /// Opções de varredura.
 #[derive(Debug, Clone)]
@@ -146,6 +156,7 @@ struct Ctx<'a> {
     opts: &'a ScanOptions,
     progress: &'a Progress,
     top: TopFiles,
+    exts: Mutex<HashMap<String, (u64, u64)>>,
 }
 
 /// Tamanho que o arquivo realmente ocupa localmente. Arquivos "somente
@@ -192,6 +203,7 @@ fn scan_dir(path: &Path, name: String, ctx: &Ctx) -> RawDir {
     let mut subdirs: Vec<(PathBuf, String)> = Vec::new();
     let mut bytes_here = 0u64;
     let mut files_here = 0u64;
+    let mut exts_here: HashMap<String, (u64, u64)> = HashMap::new();
 
     for entry in entries {
         let Ok(entry) = entry else {
@@ -221,12 +233,23 @@ fn scan_dir(path: &Path, name: String, ctx: &Ctx) -> RawDir {
         };
         files_here += 1;
         bytes_here += size;
+        let e = exts_here.entry(extension_of(&name)).or_default();
+        e.0 += size;
+        e.1 += 1;
         ctx.top.offer(size, || entry.path());
         if size >= ctx.opts.min_file_size {
             raw.files.push((name, size));
         } else {
             raw.small_count += 1;
             raw.small_size += size;
+        }
+    }
+    if !exts_here.is_empty() {
+        let mut all = ctx.exts.lock().unwrap();
+        for (ext, (size, count)) in exts_here {
+            let e = all.entry(ext).or_default();
+            e.0 += size;
+            e.1 += count;
         }
     }
     ctx.progress.files.fetch_add(files_here, Ordering::Relaxed);
@@ -256,6 +279,7 @@ pub fn scan(root: &Path, opts: &ScanOptions, progress: &Progress) -> std::io::Re
         opts,
         progress,
         top: TopFiles::new(opts.top_files),
+        exts: Mutex::new(HashMap::new()),
     };
 
     // Pool próprio com pilha maior: a recursão acompanha a profundidade das
@@ -267,6 +291,13 @@ pub fn scan(root: &Path, opts: &ScanOptions, progress: &Progress) -> std::io::Re
     let raw = pool.install(|| scan_dir(root, root.to_string_lossy().into_owned(), &ctx));
 
     let top = ctx.top.into_sorted();
+    let extensions = ctx
+        .exts
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .map(|(ext, (size, count))| ExtStat { ext, size, count })
+        .collect();
     let snap = progress.snapshot();
     Ok(Tree::from_raw(
         root.to_path_buf(),
@@ -276,5 +307,6 @@ pub fn scan(root: &Path, opts: &ScanOptions, progress: &Progress) -> std::io::Re
         snap.errors,
         progress.is_cancelled(),
         started.elapsed().as_millis() as u64,
+        extensions,
     ))
 }
