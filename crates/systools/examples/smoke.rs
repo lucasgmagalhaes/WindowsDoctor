@@ -55,6 +55,16 @@ fn main() -> ExitCode {
         println!("monitor DDC/CI: {} | modelo {:?} | firmware {:?} | ddc {}", m.description, m.model, m.firmware, m.ddc);
     }
 
+    // ICMP costuma ser bloqueado nos runners: só confere que o script roda.
+    match systools::network::run() {
+        Ok(r) => {
+            for c in &r.checks {
+                println!("[rede {:?}] {}: {}", c.status, c.title, c.summary);
+            }
+        }
+        Err(e) => failures.push(format!("rede: {e}")),
+    }
+
     for t in systools::tweaks::list() {
         println!("ajuste {}: {:?} {}", t.id, t.applied, t.error.unwrap_or_default());
     }

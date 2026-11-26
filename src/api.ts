@@ -250,6 +250,8 @@ export interface Api {
   /** Reabre o app como administrador (fecha esta janela se der certo). */
   relaunchAsAdmin(): Promise<void>;
   systemReport(): Promise<Report>;
+  /** Leva ~15 s. */
+  networkTest(): Promise<{ checks: Check[] }>;
   listTweaks(): Promise<Tweak[]>;
   setTweak(id: string, apply: boolean): Promise<Tweak>;
   listStartup(): Promise<StartupEntry[]>;
@@ -301,6 +303,7 @@ async function tauriApi(): Promise<Api> {
     clearHistory: () => invoke("clear_history"),
     relaunchAsAdmin: () => invoke("relaunch_as_admin"),
     systemReport: () => invoke("system_report"),
+    networkTest: () => invoke("network_test"),
     listTweaks: () => invoke("list_tweaks"),
     setTweak: (id, apply) => invoke("set_tweak", { id, apply }),
     listStartup: () => invoke("list_startup"),

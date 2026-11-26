@@ -42,6 +42,19 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
   const [error, setError] = useState<string | null>(null);
   const [ranAt, setRanAt] = useState<Date | null>(null);
   const [watching, setWatching] = useState(blackScreenMonitorEnabled);
+  const [net, setNet] = useState<Check[] | null>(null);
+  const [netBusy, setNetBusy] = useState(false);
+
+  const testNetwork = async () => {
+    setNetBusy(true);
+    try {
+      setNet((await api.networkTest()).checks);
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      setNetBusy(false);
+    }
+  };
 
   const toggleWatch = async (on: boolean) => {
     try {
@@ -228,6 +241,24 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
           </section>
 
           <section className="checks">
+            <div className="section-head">
+              <h2>Rede</h2>
+              <button className="btn" onClick={testNetwork} disabled={netBusy}>
+                {netBusy ? "Testando (cerca de 15 s)…" : net ? "Testar de novo" : "Testar rede"}
+              </button>
+            </div>
+            {!net && !netBusy && (
+              <p className="muted small">Mede perda de pacotes e latência até o roteador e a internet, o DNS e o sinal do Wi-Fi.</p>
+            )}
+            {net?.map((c) => (
+              <CheckCard key={c.id} check={c} tweak={undefined} onApplyTweak={applyTweak} onOpenModule={onOpenModule} />
+            ))}
+          </section>
+
+          <section className="checks">
+            <div className="section-head">
+              <h2>Verificações</h2>
+            </div>
             {report.checks.map((c) => (
               <CheckCard
                 key={c.id}

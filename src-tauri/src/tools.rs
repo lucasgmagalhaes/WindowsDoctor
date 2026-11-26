@@ -31,6 +31,11 @@ pub async fn system_report() -> CmdResult<diagnostics::Report> {
 }
 
 #[tauri::command]
+pub async fn network_test() -> CmdResult<systools::network::NetworkReport> {
+    blocking(systools::network::run).await
+}
+
+#[tauri::command]
 pub async fn list_tweaks() -> CmdResult<Vec<tweaks::TweakInfo>> {
     blocking(|| Ok(tweaks::list())).await
 }

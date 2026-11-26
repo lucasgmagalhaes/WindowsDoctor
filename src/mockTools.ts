@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -186,6 +186,17 @@ export function createMockTools(): Tools {
     async setBlackScreenMonitor() {},
     async onBlackScreen() {
       return () => undefined;
+    },
+    async networkTest() {
+      await delay(1500);
+      return {
+        checks: [
+          { id: "net_wifi", title: "Sinal do Wi-Fi", status: "info", summary: "Sinal de 54% na rede Casa_5G.", details: [], actions: ["Sinal fraco causa quedas e lentidão: aproxime-se do roteador ou use um repetidor/mesh."], tweak: null, module: null },
+          { id: "net_router", title: "Rede local (roteador)", status: "ok", summary: "Roteador respondendo bem: média 3 ms, sem perda.", details: ["Roteador (192.168.0.1): 20/20 respostas, média 3 ms, pico 9 ms", "Internet (Cloudflare) (1.1.1.1): 20/20 respostas, média 14 ms, pico 31 ms"], actions: [], tweak: null, module: null },
+          { id: "net_internet", title: "Internet", status: "ok", summary: "Internet estável: 14 ms, sem perda relevante.", details: [], actions: [], tweak: null, module: null },
+          { id: "net_dns", title: "DNS", status: "ok", summary: "DNS respondendo em 22 ms.", details: ["Servidores DNS: 192.168.0.1"], actions: [], tweak: null, module: null },
+        ],
+      };
     },
     async appVersion() {
       return "0.1.0";

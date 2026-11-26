@@ -518,6 +518,7 @@ pub fn run() {
             delete_node,
             tools::is_elevated,
             tools::system_report,
+            tools::network_test,
             tools::list_tweaks,
             tools::set_tweak,
             tools::list_startup,
