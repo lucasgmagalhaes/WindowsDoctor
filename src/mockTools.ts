@@ -138,7 +138,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -154,6 +154,12 @@ function log(kind: string, title: string, undo: HistoryEntry["undo"]) {
 
 export function createMockTools(): Tools {
   return {
+    async appVersion() {
+      return "0.1.0";
+    },
+    async openUrl(url) {
+      window.open(url, "_blank");
+    },
     async ensureRestorePoint() {
       return { kind: "notAdmin" };
     },

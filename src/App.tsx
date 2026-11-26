@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { Api, CleanupRunResult } from "./api";
 import { getApi } from "./api";
+import { checkForUpdate, type UpdateInfo } from "./update";
 import { DiskMap } from "./modules/DiskMap";
 import { Cleanup } from "./modules/Cleanup";
 import { Diagnostics } from "./modules/Diagnostics";
@@ -41,6 +42,7 @@ export default function App() {
   const [visited, setVisited] = useState<Set<ModuleId>>(new Set(["diskmap"]));
   // Muda quando a Limpeza altera o disco, para o mapa se atualizar.
   const [cleaned, setCleaned] = useState<CleanupRunResult | null>(null);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
 
   const notify = useCallback<Notify>((text, kind = "ok") => {
@@ -52,6 +54,7 @@ export default function App() {
     getApi().then((a) => {
       setApi(a);
       a.isElevated().then(setElevated).catch(() => setElevated(false));
+      if (!a.isMock) a.appVersion().then(checkForUpdate).then(setUpdate).catch(() => undefined);
     });
   }, []);
 
@@ -86,6 +89,15 @@ export default function App() {
           </button>
         ))}
         <div className="rail-spacer" />
+        {update && (
+          <button
+            className="rail-update"
+            title={`Versão ${update.version} disponível. Clique para baixar.`}
+            onClick={() => api.openUrl(update.url).catch((e) => notify(String(e), "err"))}
+          >
+            Nova versão {update.version}
+          </button>
+        )}
         <div className={`rail-admin ${elevated ? "on" : ""}`} title={elevated ? "Rodando como administrador" : "Rodando sem privilégios de administrador"}>
           {elevated ? "Admin" : "Usuário"}
         </div>

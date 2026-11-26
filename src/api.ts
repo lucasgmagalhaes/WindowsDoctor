@@ -218,6 +218,9 @@ export interface Api {
   onFinished(cb: (f: ScanFinished) => void): Promise<() => void>;
 
   isElevated(): Promise<boolean>;
+  appVersion(): Promise<string>;
+  /** Abre uma página do GitHub no navegador. */
+  openUrl(url: string): Promise<void>;
   /** Cria um ponto de restauração na primeira alteração da sessão; null se já foi feito. */
   ensureRestorePoint(reason: string): Promise<RestoreOutcome | null>;
   listHistory(): Promise<HistoryEntry[]>;
@@ -267,6 +270,8 @@ async function tauriApi(): Promise<Api> {
     onProgress: (cb) => listen<Progress>("scan-progress", (e) => cb(e.payload)),
     onFinished: (cb) => listen<ScanFinished>("scan-finished", (e) => cb(e.payload)),
     isElevated: () => invoke("is_elevated"),
+    appVersion: () => import("@tauri-apps/api/app").then((m) => m.getVersion()),
+    openUrl: (url) => invoke("open_url", { url }),
     ensureRestorePoint: (reason) => invoke("ensure_restore_point", { reason }),
     listHistory: () => invoke("list_history"),
     undoHistory: (id) => invoke("undo_history", { id }),
