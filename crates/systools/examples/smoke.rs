@@ -74,6 +74,19 @@ fn main() -> ExitCode {
         Err(e) => failures.push(format!("monitor: {e}")),
     }
 
+    match systools::shadows::info() {
+        Ok(i) => println!("pontos de restauração: {} cópias, {} bytes", i.copies, i.used),
+        Err(e) => failures.push(format!("pontos de restauração: {e}")),
+    }
+    match systools::programs::list() {
+        Ok(p) => println!("programas instalados: {}", p.len()),
+        Err(e) => failures.push(format!("programas: {e}")),
+    }
+    match systools::schedule::status() {
+        Ok(s) => println!("limpeza agendada: {}", s.enabled),
+        Err(e) => failures.push(format!("agendamento: {e}")),
+    }
+
     match systools::startup::list() {
         Ok(list) => println!("programas na inicialização: {}", list.len()),
         Err(e) => failures.push(format!("inicialização: {e}")),

@@ -215,7 +215,16 @@ export interface BlackScreen {
   foregroundApp: string | null;
 }
 
-export type RepairKind = "sfc" | "dism" | "chkdsk" | "memory";
+export type RepairKind = "sfc" | "dism" | "chkdsk" | "memory" | "compactos" | "uncompactos";
+
+export interface ShadowInfo {
+  drive: string;
+  used: number;
+  max: number;
+  driveSize: number;
+  copies: number;
+  restorePoints: { sequence: number; description: string; time: string }[];
+}
 
 export interface RepairOutcome {
   kind: string;
@@ -288,6 +297,9 @@ export interface Api {
   /** Leva ~15 s. */
   networkTest(): Promise<{ checks: Check[] }>;
   cleanupScheduleStatus(): Promise<ScheduleInfo>;
+  shadowInfo(): Promise<ShadowInfo>;
+  deleteOldShadows(): Promise<ShadowInfo>;
+  setShadowLimit(percent: number): Promise<ShadowInfo>;
   listPrograms(): Promise<Program[]>;
   /** Abre o desinstalador do programa. */
   uninstallProgram(id: string): Promise<void>;
@@ -364,6 +376,9 @@ async function tauriApi(): Promise<Api> {
     systemReport: () => invoke("system_report"),
     networkTest: () => invoke("network_test"),
     cleanupScheduleStatus: () => invoke("cleanup_schedule_status"),
+    shadowInfo: () => invoke("shadow_info"),
+    deleteOldShadows: () => invoke("delete_old_shadows"),
+    setShadowLimit: (percent) => invoke("set_shadow_limit", { percent }),
     listPrograms: () => invoke("list_programs"),
     uninstallProgram: (id) => invoke("uninstall_program", { id }),
     findLeftovers: (id) => invoke("find_leftovers", { id }),

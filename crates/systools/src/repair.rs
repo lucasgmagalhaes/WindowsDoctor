@@ -11,6 +11,10 @@ pub enum Kind {
     Dism,
     Chkdsk,
     Memory,
+    /// `compact /CompactOS:always`: comprime os arquivos do Windows.
+    CompactOs,
+    /// `compact /CompactOS:never`.
+    UncompactOs,
 }
 
 impl Kind {
@@ -20,6 +24,8 @@ impl Kind {
             "dism" => Kind::Dism,
             "chkdsk" => Kind::Chkdsk,
             "memory" => Kind::Memory,
+            "compactos" => Kind::CompactOs,
+            "uncompactos" => Kind::UncompactOs,
             _ => return None,
         })
     }
@@ -30,6 +36,8 @@ impl Kind {
             Kind::Dism => "Reparar a imagem do Windows (DISM)",
             Kind::Chkdsk => "Verificar o disco do sistema (CHKDSK)",
             Kind::Memory => "Teste de memória do Windows",
+            Kind::CompactOs => "Compactar o Windows (CompactOS)",
+            Kind::UncompactOs => "Descompactar o Windows (CompactOS)",
         }
     }
 
@@ -44,6 +52,8 @@ impl Kind {
             Kind::Chkdsk => ("chkdsk.exe", vec![drive, "/scan".into()]),
             // Abre a janela do Windows que agenda o teste para o próximo reinício.
             Kind::Memory => ("mdsched.exe", vec![]),
+            Kind::CompactOs => ("compact.exe", vec!["/CompactOS:always".into()]),
+            Kind::UncompactOs => ("compact.exe", vec!["/CompactOS:never".into()]),
         }
     }
 }
@@ -210,7 +220,7 @@ mod tests {
 
     #[test]
     fn kinds_round_trip() {
-        for k in ["sfc", "dism", "chkdsk", "memory"] {
+        for k in ["sfc", "dism", "chkdsk", "memory", "compactos", "uncompactos"] {
             let kind = Kind::parse(k).unwrap();
             assert_eq!(format!("{kind:?}").to_lowercase(), k);
         }

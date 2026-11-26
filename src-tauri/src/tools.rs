@@ -253,3 +253,48 @@ pub async fn run_repair(
     );
     Ok(outcome)
 }
+
+// ---------------------------------------------------------------- pontos de restauração (espaço)
+
+#[tauri::command]
+pub async fn shadow_info() -> CmdResult<systools::shadows::ShadowInfo> {
+    blocking(systools::shadows::info).await
+}
+
+#[tauri::command]
+pub async fn delete_old_shadows(history: State<'_, Arc<History>>) -> CmdResult<systools::shadows::ShadowInfo> {
+    if !crate::cleanup::is_admin() {
+        return Err("precisa do app aberto como administrador".into());
+    }
+    let history = history.inner().clone();
+    blocking(move || {
+        let before = systools::shadows::info()?;
+        let n = systools::shadows::delete_all_but_newest()?;
+        let after = systools::shadows::info()?;
+        history.record(
+            "cleanup",
+            format!(
+                "Pontos de restauração antigos apagados: {}",
+                systools::history::fmt_bytes(before.used.saturating_sub(after.used))
+            ),
+            format!("{n} cópia(s) de sombra removida(s); a mais recente foi mantida"),
+            None,
+        );
+        Ok(after)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn set_shadow_limit(history: State<'_, Arc<History>>, percent: u8) -> CmdResult<systools::shadows::ShadowInfo> {
+    if !crate::cleanup::is_admin() {
+        return Err("precisa do app aberto como administrador".into());
+    }
+    let history = history.inner().clone();
+    blocking(move || {
+        systools::shadows::set_max_percent(percent)?;
+        history.record("cleanup", format!("Limite dos pontos de restauração: {percent}% do disco"), "", None);
+        systools::shadows::info()
+    })
+    .await
+}

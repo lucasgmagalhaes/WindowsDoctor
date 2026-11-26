@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "listPrograms" | "uninstallProgram" | "findLeftovers" | "deleteLeftovers" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "shadowInfo" | "deleteOldShadows" | "setShadowLimit" | "listPrograms" | "uninstallProgram" | "findLeftovers" | "deleteLeftovers" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -200,8 +200,31 @@ let programs: Program[] = [
   { id: "1|DWC", name: "DisplayWidget Center", publisher: "ASUSTeK COMPUTER INC.", version: "3.3.4", installDate: "2025-11-20", size: null, installLocation: null, uninstall: "MsiExec.exe /X{ABC}" },
 ].sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
 
+const shadow = {
+  drive: "C:",
+  used: 14.2 * GB,
+  max: 23.8 * GB,
+  driveSize: 476 * GB,
+  copies: 4,
+  restorePoints: [
+    { sequence: 41, description: "Windows Update", time: "2026-11-24 03:12" },
+    { sequence: 40, description: "Instalado NVIDIA Graphics Driver", time: "2026-11-10 21:40" },
+    { sequence: 39, description: "Windows Update", time: "2026-10-28 03:05" },
+  ],
+};
+
 export function createMockTools(): Tools {
   return {
+    async shadowInfo() {
+      await delay(400);
+      return structuredClone(shadow);
+    },
+    async deleteOldShadows() {
+      throw new Error("precisa do app aberto como administrador");
+    },
+    async setShadowLimit() {
+      throw new Error("precisa do app aberto como administrador");
+    },
     async listPrograms() {
       await delay(500);
       return programs.map((p) => ({ ...p }));

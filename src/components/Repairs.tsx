@@ -22,6 +22,18 @@ const REPAIRS: { kind: RepairKind; title: string; detail: string; admin: boolean
     admin: true,
   },
   {
+    kind: "compactos",
+    title: "Compactar o Windows (CompactOS)",
+    detail: "Comprime os arquivos do Windows e libera de 2 a 5 GB, com custo mínimo de desempenho em SSDs. Leva de 10 a 20 minutos e pode ser desfeito.",
+    admin: true,
+  },
+  {
+    kind: "uncompactos",
+    title: "Descompactar o Windows",
+    detail: "Desfaz o CompactOS e devolve os arquivos do Windows ao tamanho normal.",
+    admin: true,
+  },
+  {
     kind: "memory",
     title: "Teste de memória",
     detail: "Abre o Diagnóstico de Memória do Windows, que testa a RAM no próximo reinício (cerca de 20 minutos).",
@@ -29,7 +41,19 @@ const REPAIRS: { kind: RepairKind; title: string; detail: string; admin: boolean
   },
 ];
 
-export function Repairs({ api, notify, elevated }: { api: Api; notify: Notify; elevated: boolean }) {
+const DIAGNOSTIC_REPAIRS: RepairKind[] = ["sfc", "dism", "chkdsk", "memory"];
+
+export function Repairs({
+  api,
+  notify,
+  elevated,
+  kinds = DIAGNOSTIC_REPAIRS,
+}: {
+  api: Api;
+  notify: Notify;
+  elevated: boolean;
+  kinds?: RepairKind[];
+}) {
   const [running, setRunning] = useState<RepairKind | null>(null);
   const [progress, setProgress] = useState<{ line: string; percent: number | null } | null>(null);
   const [results, setResults] = useState<Partial<Record<RepairKind, RepairOutcome>>>({});
@@ -62,7 +86,7 @@ export function Repairs({ api, notify, elevated }: { api: Api; notify: Notify; e
 
   return (
     <ul className="opt-list">
-      {REPAIRS.map((r) => {
+      {REPAIRS.filter((r) => kinds.includes(r.kind)).map((r) => {
         const res = results[r.kind];
         return (
           <li key={r.kind} className="opt-item repair-item">

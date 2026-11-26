@@ -4,10 +4,11 @@ import type { ToolProps } from "../App";
 import { CleanupDialog } from "../components/Cleanup";
 import { Duplicates } from "../components/Duplicates";
 import { Programs } from "../components/Programs";
+import { SystemSpace } from "../components/SystemSpace";
 import { Schedule } from "../components/Schedule";
 import { ToolPage } from "../components/ToolLayout";
 
-type Tab = "auto" | "duplicates" | "programs";
+type Tab = "auto" | "duplicates" | "programs" | "system";
 
 const TABS: { id: Tab; label: string; subtitle: string }[] = [
   {
@@ -25,6 +26,11 @@ const TABS: { id: Tab; label: string; subtitle: string }[] = [
     id: "programs",
     label: "Programas",
     subtitle: "Programas instalados com o espaço que ocupam. Desinstale pelo desinstalador do próprio programa e depois apague as pastas que sobraram.",
+  },
+  {
+    id: "system",
+    label: "Sistema",
+    subtitle: "Espaço que o próprio Windows reserva: pontos de restauração e a compactação dos arquivos do sistema.",
   },
 ];
 
@@ -59,6 +65,11 @@ export function Cleanup({ api, notify, elevated, onOpenModule, onCleaned }: Tool
         <Schedule api={api} notify={notify} elevated={elevated} />
         <CleanupDialog api={api} inline onFinished={onCleaned} />
       </div>
+      {seen.has("system") && (
+        <div hidden={tab !== "system"}>
+          <SystemSpace api={api} notify={notify} elevated={elevated} />
+        </div>
+      )}
       {seen.has("programs") && (
         <div hidden={tab !== "programs"}>
           <Programs api={api} notify={notify} />

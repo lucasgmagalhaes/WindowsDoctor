@@ -19,6 +19,7 @@ pub mod programs;
 pub mod repair;
 pub mod restore;
 pub mod schedule;
+pub mod shadows;
 pub mod startup;
 pub mod tweaks;
 
