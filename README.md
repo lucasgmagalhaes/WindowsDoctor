@@ -9,9 +9,9 @@ picked from the bar on the left:
 | Module | What it does |
 | --- | --- |
 | **Disk map** | Shows **where disk space is being used** in each partition, from the drive root down to the last folder, so you can find what to delete. |
-| **Cleanup** | Measures and deletes caches, temp files and installer leftovers that Windows and apps rebuild on their own. |
-| **Diagnostics** | Reads the event logs and the hardware to explain black screens, crashes, slowness and disk errors. Read only. |
-| **Optimizations** | Windows tweaks (display, power, games, storage) and the list of programs that start with Windows. |
+| **Cleanup** | Caches and temp files (also on a schedule), duplicate files, installed programs with their leftovers, restore point space and CompactOS. |
+| **Diagnostics** | Reads the event logs and the hardware to explain black screens, blue screens, crashes, slowness and disk errors; network test, guided repairs and a live black screen monitor. |
+| **Optimizations** | Reversible tweaks (display, power, games, storage, privacy), one-click profiles, boot time and everything that starts with Windows. |
 | **History** | Every change the app made, with undo for tweaks and startup programs, and an optional System Restore point before the first change of each session. |
 
 ## Why sunburst/treemap instead of a graph
@@ -42,6 +42,16 @@ visual. Here area is proportional to size:
 - Files smaller than a configurable threshold (1 MB by default) are grouped per folder, which keeps
   memory low on partitions with millions of files.
 
+### More views
+
+- **O que mudou**: after each complete scan a summary of folders over 100 MB is saved per scanned place; the
+  next scan lists what grew or shrank by 200 MB or more, showing the most specific folder for each change.
+- **Por tipo**: space by file type (videos, games, installers, virtual disks…) including the small grouped
+  files; a click on an extension filters the largest files list.
+- **Save / open a scan** (`.wdscan`, compact binary) to look at it later without scanning again.
+- **Move to another drive** (⇄ on a folder): copies it, checks the size, leaves a junction in its place so
+  programs keep working, and undoes everything if a step fails. System folders cannot be moved.
+
 ## Cleanup
 
 The *Limpeza* module (also reachable from the disk map sidebar). Finds and deletes, in one go, what Windows and
@@ -63,6 +73,16 @@ has a button to restart the app elevated. The list of locations is fixed in `src
 the frontend only sends category ids. After cleaning, the affected folders of the current scan are
 updated without a full rescan.
 
+Other tabs in the Cleanup module:
+
+- **Scheduled cleanup**: a Task Scheduler task runs the app windowless (`--auto-cleanup`) daily, weekly or
+  monthly and cleans only the safe categories; the result goes to the history.
+- **Duplicados**: same size → head/tail hash → full hash → byte-by-byte check. System and program folders and
+  cloud-only files are skipped; removed copies go to the Recycle Bin and one copy is always kept.
+- **Programas**: installed programs with size, opened with their own uninstaller (MSI `/I` becomes `/X`), then
+  exact-name leftover folders in the install location, AppData and ProgramData.
+- **Sistema**: space used by restore points (delete all but the newest, set the limit) and CompactOS.
+
 ## Diagnostics
 
 Runs a read-only PowerShell script (`crates/systools/src/diagnostics.ps1`) and evaluates the result in Rust.
@@ -75,8 +95,18 @@ that applies the matching optimization.
 - Multiplane Overlay (MPO) enabled on NVIDIA, a known cause of black flicker.
 - WHEA hardware errors, unexpected shutdowns (Kernel-Power 41), disk/NTFS errors and physical disk health.
 - Free space on the system drive, memory use, uptime (and Fast Startup), apps that crashed in the last week.
-- System summary: Windows, CPU, RAM, GPUs with driver and current mode, monitors with connection type, disks.
-- **Copy report** puts a plain text summary on the clipboard, handy for support forums.
+- **Blue screens** (WER 1001) with the stop code name and its usual cause, plus the latest minidumps.
+- Devices with an error code in Device Manager; SMART counters per disk (temperature, wear, power-on hours,
+  uncorrected errors); temperatures (ACPI zones, `nvidia-smi`); failed Windows Update installs and pending
+  reboots; battery wear on laptops.
+- System summary: Windows, CPU, RAM, GPUs with driver and current mode, monitors with connection type and,
+  over DDC/CI (read only), monitor model and firmware version. Nothing is ever written to the monitor.
+- **Live black screen monitor**: while the app is open it checks the log every 10 s and records each display
+  driver reset with the program that was in the foreground.
+- **Network test**: router and internet loss/latency, DNS time and Wi-Fi signal, telling local network problems
+  from provider problems.
+- **Guided repairs**: SFC, DISM `/RestoreHealth`, `chkdsk /scan` with live output, and the memory test.
+- **Copy report** (plain text) and **Export HTML** (standalone page) for support forums.
 
 ## Optimizations
 
@@ -84,13 +114,25 @@ Every tweak reads the real current state, so the switch is always right even if 
 Turning a switch off applies the value described for that tweak; it may not restore the previous setting.
 For example, turning off High Performance selects the Balanced plan even if a custom plan was active before.
 
-- Display: disable MPO.
-- System: disable Fast Startup.
+- Display: disable MPO, hardware-accelerated GPU scheduling, optimizations and VRR for windowed games.
+- System: disable Fast Startup, visual effects for best performance.
 - Power: High Performance plan, PCI Express link power management off, USB selective suspend off.
 - Games: Game Mode, background recording (Game DVR).
 - Storage: disable hibernation (deletes `hiberfil.sys`).
-- **Startup programs** (Run keys and Startup folders), turned on/off the same way as Task Manager does
-  (`StartupApproved`), so nothing is deleted.
+- Privacy: advertising ID, tailored experiences, suggested apps, web results in Start, activity history,
+  minimal telemetry.
+- **Profiles**: Jogos, Economia de energia, Privacidade and Padrão do Windows apply a group of tweaks at once.
+- **Boot time**: the last boots from Windows' Diagnostics-Performance log and what Windows flagged as slow.
+- **Startup programs**: Run keys and Startup folders (the same way as Task Manager, `StartupApproved`),
+  scheduled tasks with logon/boot triggers, and third-party automatic services (set to manual).
+
+## History and safety
+
+- Every change (tweaks, startup items, cleanups, deletions, moves, repairs, black screens seen) is logged in
+  `%LOCALAPPDATA%\com.windowsfoldermap.app\history.json`; tweaks and startup items can be undone there.
+- Optionally (on by default) a System Restore point is created before the first change of each session.
+- The app checks GitHub releases once a day and shows a button when a newer version exists. Pushing a `v*`
+  tag builds the installers and publishes the release.
 
 Changes under `HKLM` need administrator rights. The app shows whether it is elevated and has a
 **Reopen as administrator** button.
