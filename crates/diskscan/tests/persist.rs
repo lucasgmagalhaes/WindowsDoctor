@@ -56,5 +56,5 @@ fn snapshot_of_a_real_scan() {
     let s = t.snapshot(7, 1000, 8);
     assert_eq!(s.total, 4010);
     assert_eq!(s.dirs.len(), 3, "{:?}", s.dirs);
-    assert_eq!(s.dirs[&r.join("a/b").to_string_lossy().into_owned()], 4000);
+    assert_eq!(s.dirs[&r.join("a").join("b").to_string_lossy().into_owned()], 4000);
 }
