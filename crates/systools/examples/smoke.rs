@@ -51,6 +51,10 @@ fn main() -> ExitCode {
         Err(e) => failures.push(format!("diagnóstico: {e}")),
     }
 
+    for m in systools::ddc::read_all() {
+        println!("monitor DDC/CI: {} | modelo {:?} | firmware {:?} | ddc {}", m.description, m.model, m.firmware, m.ddc);
+    }
+
     for t in systools::tweaks::list() {
         println!("ajuste {}: {:?} {}", t.id, t.applied, t.error.unwrap_or_default());
     }

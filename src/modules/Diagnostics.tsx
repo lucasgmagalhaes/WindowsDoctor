@@ -165,9 +165,27 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
                 {report.summary.gpus.map((g) => (
                   <FragmentKV key={g.name} k={g.name} v={`Driver ${g.driverVersion} · ${g.driverDate || "data desconhecida"}`} sub={g.width ? `${g.width}×${g.height} @ ${g.refreshRate} Hz` : undefined} />
                 ))}
-                {report.summary.monitors.map((m, i) => (
-                  <FragmentKV key={i} k={`Monitor ${i + 1}`} v={`${m.manufacturer} ${m.name}`.trim() || "Desconhecido"} sub={`Conexão: ${m.connection}`} />
-                ))}
+                {report.summary.monitors.map((m, i) => {
+                  const ddc = report.monitorsDdc[i];
+                  const fw = ddc?.firmware ? ` · firmware ${ddc.firmware}` : ddc && !ddc.ddc ? " · DDC/CI desligado ou sem resposta" : "";
+                  return (
+                    <FragmentKV
+                      key={i}
+                      k={`Monitor ${i + 1}`}
+                      v={`${m.manufacturer} ${m.name}`.trim() || ddc?.model || "Desconhecido"}
+                      sub={`Conexão: ${m.connection}${fw}`}
+                    />
+                  );
+                })}
+                {report.summary.monitors.some((m) => m.manufacturer === "AUS") && (
+                  <>
+                    <dt>Firmware ASUS</dt>
+                    <dd className="small">
+                      A atualização é feita pelo DisplayWidget Center com o <strong>cabo USB upstream</strong> do monitor ligado
+                      ao PC e o DDC/CI ativado no menu do monitor. Sem o cabo USB o app da ASUS não encontra o monitor.
+                    </dd>
+                  </>
+                )}
               </dl>
             </div>
             <div className="card">

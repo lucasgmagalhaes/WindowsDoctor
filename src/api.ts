@@ -165,6 +165,7 @@ export interface Report {
     battery: { name: string; designCapacity: number; fullChargeCapacity: number; cycleCount: number | null } | null;
   };
   checks: Check[];
+  monitorsDdc: { description: string; model: string | null; firmware: string | null; mccsVersion: string | null; ddc: boolean }[];
 }
 
 export interface Tweak {

@@ -35,6 +35,10 @@ const report: Report = {
     temps: [{ label: "NVIDIA GeForce RTX 3070", celsius: 47 }],
     battery: null,
   },
+  monitorsDdc: [
+    { description: "Generic PnP Monitor", model: "VG27AQ1A", firmware: "1.02", mccsVersion: "2.2", ddc: true },
+    { description: "Generic PnP Monitor", model: null, firmware: null, mccsVersion: null, ddc: false },
+  ],
   checks: [
     {
       id: "bsod",

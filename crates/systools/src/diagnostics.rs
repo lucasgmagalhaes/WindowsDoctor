@@ -166,6 +166,8 @@ pub struct Summary {
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub summary: Summary,
+    /// Modelo e firmware lidos do monitor por DDC/CI (só leitura).
+    pub monitors_ddc: Vec<crate::ddc::MonitorDdc>,
     /// Ordenadas da mais grave para a menos grave.
     pub checks: Vec<Check>,
 }
@@ -185,7 +187,10 @@ pub fn collect() -> Result<RawSystem, String> {
 }
 
 pub fn run() -> Result<Report, String> {
-    collect().map(|raw| evaluate(&raw))
+    let raw = collect()?;
+    let mut report = evaluate(&raw);
+    report.monitors_ddc = crate::ddc::read_all();
+    Ok(report)
 }
 
 // ---------------------------------------------------------------- avaliação
@@ -308,6 +313,7 @@ pub fn evaluate(raw: &RawSystem) -> Report {
             battery: raw.battery.clone(),
         },
         checks,
+        monitors_ddc: Vec::new(),
     }
 }
 
