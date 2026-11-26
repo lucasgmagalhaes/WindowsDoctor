@@ -117,3 +117,21 @@ pub(crate) fn subkeys(hive: Hive, path: &str) -> Result<Vec<String>, String> {
     };
     Ok(key.enum_keys().filter_map(Result::ok).collect())
 }
+
+/// Lê um texto (REG_SZ); `None` se a chave ou o valor não existirem.
+pub(crate) fn get_string(hive: Hive, path: &str, name: &str) -> Result<Option<String>, String> {
+    let Some(key) = open_read(hive, path).map_err(|e| describe(&e))? else {
+        return Ok(None);
+    };
+    match key.get_value::<String, _>(name) {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(describe(&e)),
+    }
+}
+
+pub(crate) fn set_string(hive: Hive, path: &str, name: &str, value: &str) -> Result<(), String> {
+    open_write(hive, path)?
+        .set_value(name, &value.to_string())
+        .map_err(|e| describe(&e))
+}

@@ -32,3 +32,9 @@ pub(crate) fn string_values(_: Hive, _: &str) -> Result<Vec<(String, String)>, S
 pub(crate) fn subkeys(_: Hive, _: &str) -> Result<Vec<String>, String> {
     no()
 }
+pub(crate) fn get_string(_: Hive, _: &str, _: &str) -> Result<Option<String>, String> {
+    no()
+}
+pub(crate) fn set_string(_: Hive, _: &str, _: &str, _: &str) -> Result<(), String> {
+    no()
+}
