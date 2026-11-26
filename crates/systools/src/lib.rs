@@ -17,6 +17,7 @@ pub mod monitor;
 pub mod network;
 pub mod repair;
 pub mod restore;
+pub mod schedule;
 pub mod startup;
 pub mod tweaks;
 

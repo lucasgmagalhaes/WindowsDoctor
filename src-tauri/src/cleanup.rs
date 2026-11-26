@@ -734,6 +734,19 @@ pub fn run(ids: &[String], mut on_start: impl FnMut(usize, &str)) -> (Vec<Catego
     (results, touched)
 }
 
+/// Ids the scheduled cleanup runs: only "safe" categories with something to
+/// clean that this process can reach (system folders only when elevated).
+pub fn auto_ids() -> Vec<String> {
+    let report = analyze();
+    let admin = report.is_admin;
+    report
+        .categories
+        .into_iter()
+        .filter(|c| c.level == Level::Safe && (admin || !c.needs_admin) && c.size.is_some_and(|s| s > 0))
+        .map(|c| c.id.to_string())
+        .collect()
+}
+
 /// Whether the app runs elevated (administrator).
 pub fn is_admin() -> bool {
     win::is_admin()

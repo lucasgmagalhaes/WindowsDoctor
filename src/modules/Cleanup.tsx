@@ -3,6 +3,7 @@ import type { CleanupRunResult } from "../api";
 import type { ToolProps } from "../App";
 import { CleanupDialog } from "../components/Cleanup";
 import { Duplicates } from "../components/Duplicates";
+import { Schedule } from "../components/Schedule";
 import { ToolPage } from "../components/ToolLayout";
 
 type Tab = "auto" | "duplicates";
@@ -21,7 +22,7 @@ const TABS: { id: Tab; label: string; subtitle: string }[] = [
   },
 ];
 
-export function Cleanup({ api, notify, onOpenModule, onCleaned }: ToolProps & { onCleaned: (run: CleanupRunResult) => void }) {
+export function Cleanup({ api, notify, elevated, onOpenModule, onCleaned }: ToolProps & { onCleaned: (run: CleanupRunResult) => void }) {
   const [tab, setTab] = useState<Tab>("auto");
   // Abas já abertas continuam montadas para não perder o resultado.
   const [seen, setSeen] = useState<Set<Tab>>(new Set(["auto"]));
@@ -48,7 +49,8 @@ export function Cleanup({ api, notify, onOpenModule, onCleaned }: ToolProps & { 
         </>
       }
     >
-      <div hidden={tab !== "auto"}>
+      <div hidden={tab !== "auto"} className="tab-page">
+        <Schedule api={api} notify={notify} elevated={elevated} />
         <CleanupDialog api={api} inline onFinished={onCleaned} />
       </div>
       {seen.has("duplicates") && (

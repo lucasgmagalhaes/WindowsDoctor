@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -190,8 +190,17 @@ let dupGroups: DuplicateGroup[] = [
   { size: 230 * 1024 ** 2, wasted: 230 * 1024 ** 2, paths: ["C:\\Users\\voce\\Downloads\\setup.exe", "C:\\Users\\voce\\Downloads\\setup (2).exe"] },
 ];
 
+let schedule = { enabled: false, nextRun: null as string | null };
+
 export function createMockTools(): Tools {
   return {
+    async cleanupScheduleStatus() {
+      return { ...schedule };
+    },
+    async setCleanupSchedule(f) {
+      schedule = f ? { enabled: true, nextRun: "30/11/2026 12:00:00" } : { enabled: false, nextRun: null };
+      return { ...schedule };
+    },
     async findDuplicates() {
       for (let i = 1; i <= 5; i++) {
         dupCbs.forEach((cb) => cb({ files: i * 2311, hashed: i * 40 }));

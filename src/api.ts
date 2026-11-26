@@ -231,6 +231,12 @@ export interface DuplicateGroup {
   paths: string[];
 }
 
+export type Frequency = "daily" | "weekly" | "monthly";
+export interface ScheduleInfo {
+  enabled: boolean;
+  nextRun: string | null;
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -270,6 +276,9 @@ export interface Api {
   systemReport(): Promise<Report>;
   /** Leva ~15 s. */
   networkTest(): Promise<{ checks: Check[] }>;
+  cleanupScheduleStatus(): Promise<ScheduleInfo>;
+  /** null desliga. */
+  setCleanupSchedule(frequency: Frequency | null): Promise<ScheduleInfo>;
   /** Sem pastas, procura na pasta do usuário. */
   findDuplicates(roots: string[] | null, minSize: number): Promise<DuplicateGroup[]>;
   cancelDuplicates(): Promise<void>;
@@ -337,6 +346,8 @@ async function tauriApi(): Promise<Api> {
     relaunchAsAdmin: () => invoke("relaunch_as_admin"),
     systemReport: () => invoke("system_report"),
     networkTest: () => invoke("network_test"),
+    cleanupScheduleStatus: () => invoke("cleanup_schedule_status"),
+    setCleanupSchedule: (frequency) => invoke("set_cleanup_schedule", { frequency }),
     findDuplicates: (roots, minSize) => invoke("find_duplicates", { roots, minSize }),
     cancelDuplicates: () => invoke("cancel_duplicates"),
     deleteDuplicates: (paths) => invoke("delete_duplicates", { paths }),

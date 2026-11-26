@@ -294,6 +294,10 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .repair-progress .bar { flex: none; height: 6px; }
 .repair-progress code { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.tab-page { display: flex; flex-direction: column; gap: 14px; }
+.tab-page[hidden] { display: none; }
+.select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); font: inherit; }
+
 /* duplicados */
 .dup { display: flex; flex-direction: column; gap: 10px; }
 .dup-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

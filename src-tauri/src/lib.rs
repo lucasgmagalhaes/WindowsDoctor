@@ -503,6 +503,47 @@ fn save_report(path: String, content: String) -> CmdResult<()> {
     std::fs::write(&p, content).map_err(|e| format!("falha ao salvar {path}: {e}"))
 }
 
+// ---------------------------------------------------------------- limpeza agendada
+
+/// Pasta de dados do app, a mesma que o Tauri usa (`%LOCALAPPDATA%\<id>`).
+fn data_dir_without_tauri() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("com.windowsfoldermap.app"))
+}
+
+/// Modo sem janela usado pela tarefa agendada. Devolve o código de saída.
+pub fn run_auto_cleanup() -> i32 {
+    let history = systools::history::History::load(data_dir_without_tauri().map(|d| d.join("history.json")));
+    let ids = cleanup::auto_ids();
+    let (results, _) = cleanup::run(&ids, |_, _| {});
+    let freed: u64 = results.iter().map(|r| r.freed).sum();
+    history.record(
+        "cleanup",
+        format!("Limpeza agendada: {} liberados", systools::history::fmt_bytes(freed)),
+        results.iter().map(|r| r.title).collect::<Vec<_>>().join(", "),
+        None,
+    );
+    0
+}
+
+#[tauri::command]
+async fn cleanup_schedule_status() -> CmdResult<systools::schedule::ScheduleInfo> {
+    tauri::async_runtime::spawn_blocking(systools::schedule::status)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn set_cleanup_schedule(
+    frequency: Option<systools::schedule::Frequency>,
+) -> CmdResult<systools::schedule::ScheduleInfo> {
+    tauri::async_runtime::spawn_blocking(move || match frequency {
+        Some(f) => systools::schedule::enable(f, cleanup::is_admin()),
+        None => systools::schedule::disable().and_then(|_| systools::schedule::status()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---------------------------------------------------------------- app
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -552,6 +593,8 @@ pub fn run() {
             relaunch_as_admin,
             open_url,
             save_report,
+            cleanup_schedule_status,
+            set_cleanup_schedule,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");
