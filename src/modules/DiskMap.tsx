@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HierarchyRectangularNode } from "d3-hierarchy";
-import type { Api, CleanupRunResult, Crumb, Drive, FileInfo, NodeView, Progress, Stats } from "../api";
+import type { Api, CleanupRunResult, Crumb, ExtStat, Drive, FileInfo, NodeView, Progress, Stats } from "../api";
 import { Sunburst } from "../components/Sunburst";
 import { Treemap } from "../components/Treemap";
 import { ItemList } from "../components/ItemList";
 import { TopFiles } from "../components/TopFiles";
+import { FileTypes } from "../components/FileTypes";
 import { Sidebar } from "../components/Sidebar";
 import { DeleteDialog, ScanOverlay, type DeleteTarget } from "../components/Dialogs";
 import { formatBytes, formatCount, formatPercent, nodeLabel } from "../format";
@@ -12,7 +13,7 @@ import type { Notify } from "../App";
 
 type RNode = HierarchyRectangularNode<NodeView>;
 type ChartMode = "sunburst" | "treemap";
-type Tab = "explore" | "top";
+type Tab = "explore" | "top" | "types";
 
 interface Loaded {
   chart: NodeView;
@@ -42,6 +43,8 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
   const [topFiles, setTopFiles] = useState<FileInfo[]>([]);
   const [mode, setMode] = useState<ChartMode>("sunburst");
   const [tab, setTab] = useState<Tab>("explore");
+  const [exts, setExts] = useState<ExtStat[]>([]);
+  const [extFilter, setExtFilter] = useState<string | null>(null);
   const [hovered, setHovered] = useState<RNode | null>(null);
   const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
   const [minFileSize, setMinFileSize] = useState(1024 * 1024);
@@ -112,7 +115,8 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
           api.getNode(currentId, 1, 2000, 0),
         ]);
         const id = list.id!;
-        const [crumbs, path, top] = await Promise.all([api.getAncestors(id), api.getPath(id), api.getTopFiles(300)]);
+        const [crumbs, path, top] = await Promise.all([api.getAncestors(id), api.getPath(id), api.getTopFiles(500)]);
+        api.getExtensions().then((e) => !stale && setExts(e)).catch(() => undefined);
         if (!stale) {
           setData({ chart, list, crumbs, path });
           setTopFiles(top);
@@ -288,6 +292,9 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
                 <button role="tab" aria-selected={tab === "explore"} className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>
                   Explorar
                 </button>
+                <button role="tab" aria-selected={tab === "types"} className={tab === "types" ? "on" : ""} onClick={() => setTab("types")}>
+                  Por tipo
+                </button>
                 <button role="tab" aria-selected={tab === "top"} className={tab === "top" ? "on" : ""} onClick={() => setTab("top")}>
                   Maiores arquivos
                 </button>
@@ -371,9 +378,31 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
                   </section>
                 </div>
               </>
+            ) : tab === "types" ? (
+              <section className="top-panel">
+                <FileTypes
+                  exts={exts}
+                  onPickExt={(e) => {
+                    setExtFilter(e);
+                    setTab("top");
+                  }}
+                />
+              </section>
             ) : (
               <section className="top-panel">
-                <TopFiles files={topFiles} onReveal={reveal} onDelete={askDeleteFile} />
+                {extFilter && (
+                  <div className="filter-chip">
+                    Mostrando só arquivos <strong>.{extFilter}</strong> entre os 500 maiores
+                    <button className="icon-btn" title="Remover filtro" onClick={() => setExtFilter(null)}>
+                      ✕
+                    </button>
+                  </div>
+                )}
+                <TopFiles
+                  files={extFilter ? topFiles.filter((f) => f.path.toLowerCase().endsWith(`.${extFilter}`)) : topFiles}
+                  onReveal={reveal}
+                  onDelete={askDeleteFile}
+                />
               </section>
             )}
           </>

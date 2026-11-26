@@ -38,6 +38,15 @@ pub struct FileInfo {
     pub size: u64,
 }
 
+/// Espaço por extensão de arquivo ("" = sem extensão).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtStat {
+    pub ext: String,
+    pub size: u64,
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanStats {
@@ -86,6 +95,8 @@ pub struct Tree {
     errors: u64,
     cancelled: bool,
     elapsed_ms: u64,
+    /// Da varredura completa; não acompanha exclusões nem re-análises.
+    extensions: Vec<ExtStat>,
 }
 
 impl Tree {
@@ -97,7 +108,9 @@ impl Tree {
         errors: u64,
         cancelled: bool,
         elapsed_ms: u64,
+        mut extensions: Vec<ExtStat>,
     ) -> Self {
+        extensions.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.ext.cmp(&b.ext)));
         let mut tree = Tree {
             root_path,
             nodes: Vec::new(),
@@ -106,6 +119,7 @@ impl Tree {
             errors,
             cancelled,
             elapsed_ms,
+            extensions,
         };
         tree.flatten(raw, NO_PARENT);
         tree
@@ -179,6 +193,11 @@ impl Tree {
         node.file_count = files;
         node.dir_count = dirs;
         id
+    }
+
+    /// Espaço por extensão, maior primeiro.
+    pub fn extensions(&self) -> &[ExtStat] {
+        &self.extensions
     }
 
     pub fn root_id(&self) -> u32 {

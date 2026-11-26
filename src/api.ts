@@ -257,6 +257,12 @@ export interface Program {
   uninstall: string;
 }
 
+export interface ExtStat {
+  ext: string;
+  size: number;
+  count: number;
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -267,6 +273,8 @@ export interface Api {
   getAncestors(id: number): Promise<Crumb[]>;
   getPath(id: number): Promise<string>;
   getTopFiles(limit: number): Promise<FileInfo[]>;
+  /** Espaço por extensão na última varredura completa. */
+  getExtensions(): Promise<ExtStat[]>;
   findPath(path: string): Promise<number | null>;
   reveal(path: string, select: boolean): Promise<void>;
   /** Deletes by node `id` or, for grouped files from the top list, by `path`. */
@@ -339,6 +347,7 @@ async function tauriApi(): Promise<Api> {
     getAncestors: (id) => invoke("get_ancestors", { id }),
     getPath: (id) => invoke("get_path", { id }),
     getTopFiles: (limit) => invoke("get_top_files", { limit }),
+    getExtensions: () => invoke("get_extensions"),
     findPath: (path) => invoke("find_path", { path }),
     reveal: (path, select) => invoke("reveal_path", { path, select }),
     deleteNode: (target, permanent) =>

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use diskscan::{Crumb, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanStats, Tree};
+use diskscan::{Crumb, ExtStat, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanStats, Tree};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -225,6 +225,11 @@ fn get_path(state: State<'_, Arc<AppState>>, id: u32) -> CmdResult<String> {
 #[tauri::command]
 fn get_top_files(state: State<'_, Arc<AppState>>, limit: usize) -> CmdResult<Vec<FileInfo>> {
     with_tree(&state, |t| Ok(t.top_files(limit).to_vec()))
+}
+
+#[tauri::command]
+fn get_extensions(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<ExtStat>> {
+    with_tree(&state, |t| Ok(t.extensions().to_vec()))
 }
 
 #[tauri::command]
@@ -572,6 +577,7 @@ pub fn run() {
             get_path,
             get_top_files,
             find_path,
+            get_extensions,
             reveal_path,
             delete_node,
             tools::is_elevated,

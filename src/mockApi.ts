@@ -350,6 +350,24 @@ export function createMockApi(): Api {
     async getPath(id) {
       return need().pathOf(id);
     },
+    async getExtensions() {
+      need();
+      const GBx = 1024 ** 3;
+      return [
+        { ext: "vhdx", size: 24 * GBx, count: 1 },
+        { ext: "pak", size: 61 * GBx, count: 412 },
+        { ext: "mp4", size: 22.3 * GBx, count: 214 },
+        { ext: "dll", size: 14.1 * GBx, count: 48211 },
+        { ext: "iso", size: 6.2 * GBx, count: 1 },
+        { ext: "exe", size: 4.8 * GBx, count: 3120 },
+        { ext: "jpg", size: 3.9 * GBx, count: 18820 },
+        { ext: "msi", size: 3.1 * GBx, count: 96 },
+        { ext: "zip", size: 2.2 * GBx, count: 41 },
+        { ext: "pdf", size: 1.1 * GBx, count: 930 },
+        { ext: "mp3", size: 0.9 * GBx, count: 2100 },
+        { ext: "", size: 7.4 * GBx, count: 61022 },
+      ].sort((x, y) => y.size - x.size);
+    },
     async getTopFiles(limit) {
       return need().top.slice(0, limit);
     },

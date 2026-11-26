@@ -14,4 +14,4 @@ mod scan;
 mod tree;
 
 pub use scan::{scan, Progress, ProgressSnapshot, ScanOptions};
-pub use tree::{Crumb, FileInfo, NodeKind, NodeView, ScanStats, Tree};
+pub use tree::{Crumb, ExtStat, FileInfo, NodeKind, NodeView, ScanStats, Tree};
