@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Api, CleanupCategory, CleanupProgress, CleanupReport, CleanupRunResult } from "../api";
 import { formatBytes, formatCount } from "../format";
 import { DO_NOT_DELETE } from "../doNotDelete";
+import { beforeChange } from "../safety";
 
 type Phase =
   | { kind: "analyzing" }
@@ -89,6 +90,8 @@ export function CleanupDialog({
     if (!report || !chosen.length) return;
     setPhase({ kind: "running", report, progress: null });
     try {
+      // Categorias do sistema mexem em pastas do Windows: ponto de restauração antes.
+      if (chosen.some((c) => c.needsAdmin)) await beforeChange(api, "Limpeza automática");
       const run = await api.cleanupRun(chosen.map((c) => c.id));
       setPhase({ kind: "done", report, run });
       onFinished(run);

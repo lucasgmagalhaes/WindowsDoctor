@@ -5,9 +5,10 @@ import { DiskMap } from "./modules/DiskMap";
 import { Cleanup } from "./modules/Cleanup";
 import { Diagnostics } from "./modules/Diagnostics";
 import { Optimize } from "./modules/Optimize";
+import { History } from "./modules/History";
 
 export type Notify = (text: string, kind?: "ok" | "err") => void;
-export type ModuleId = "diskmap" | "cleanup" | "diagnostics" | "optimize";
+export type ModuleId = "diskmap" | "cleanup" | "diagnostics" | "optimize" | "history";
 
 /** O que todo módulo de ferramentas recebe do shell. */
 export interface ToolProps {
@@ -29,6 +30,7 @@ const MODULES: { id: ModuleId; label: string; icon: ReactNode }[] = [
   { id: "cleanup", label: "Limpeza", icon: icon("M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5") },
   { id: "diagnostics", label: "Diagnóstico", icon: icon("M3 12h4l2-6 4 12 2-6h6") },
   { id: "optimize", label: "Otimizações", icon: icon("M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4") },
+  { id: "history", label: "Histórico", icon: icon("M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3") },
 ];
 
 export default function App() {
@@ -107,6 +109,11 @@ export default function App() {
         {visited.has("optimize") && (
           <div className="module" hidden={active !== "optimize"}>
             <Optimize {...tool} />
+          </div>
+        )}
+        {visited.has("history") && (
+          <div className="module" hidden={active !== "history"}>
+            <History {...tool} active={active === "history"} />
           </div>
         )}
       </div>

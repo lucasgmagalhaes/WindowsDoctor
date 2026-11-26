@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Check, CheckStatus, Report, Tweak } from "../api";
 import type { ToolProps } from "../App";
+import { beforeChange } from "../safety";
 import { AdminNotice, Loading, ToolPage } from "../components/ToolLayout";
 import { formatBytes } from "../format";
 
@@ -62,6 +63,7 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
 
   const applyTweak = async (id: string) => {
     try {
+      await beforeChange(api, tweaks.find((x) => x.id === id)?.title ?? id, notify);
       const t = await api.setTweak(id, true);
       setTweaks((list) => list.map((x) => (x.id === id ? t : x)));
       notify(t.needsRestart ? `"${t.title}" aplicado. Reinicie o PC para valer.` : `"${t.title}" aplicado.`);

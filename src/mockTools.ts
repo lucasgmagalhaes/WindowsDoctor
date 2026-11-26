@@ -1,7 +1,7 @@
 // Dados simulados dos módulos Limpeza, Diagnóstico e Otimizações para
 // desenvolver a interface no navegador.
 
-import type { Api, CleanupTarget, Report, StartupEntry, Tweak } from "./api";
+import type { Api, HistoryEntry, CleanupTarget, Report, StartupEntry, Tweak } from "./api";
 
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
@@ -151,12 +151,46 @@ const cleanup: CleanupTarget[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup" | "listCleanup" | "runCleanup"
 >;
 
+const history: HistoryEntry[] = [
+  { id: 3, timeMs: Date.now() - 3600e3, kind: "startup", title: "Desativado na inicialização: Steam", detail: "", undo: { type: "startup", id: "0:Steam", enabled: true }, undone: false },
+  { id: 2, timeMs: Date.now() - 86400e3, kind: "cleanup", title: "Limpeza automática: 9,8 GB liberados", detail: "Arquivos temporários do usuário, Cache dos navegadores", undo: null, undone: false },
+  { id: 1, timeMs: Date.now() - 2 * 86400e3, kind: "restore", title: "Ponto de restauração criado", detail: "Desativar Multiplane Overlay (MPO)", undo: null, undone: false },
+];
+
+function log(kind: string, title: string, undo: HistoryEntry["undo"]) {
+  history.unshift({ id: Date.now(), timeMs: Date.now(), kind, title, detail: "", undo, undone: false });
+}
+
 export function createMockTools(): Tools {
   return {
+    async ensureRestorePoint() {
+      return { kind: "notAdmin" };
+    },
+    async listHistory() {
+      return history.map((h) => ({ ...h }));
+    },
+    async undoHistory(id) {
+      const h = history.find((x) => x.id === id);
+      if (!h?.undo) throw new Error("esta ação não pode ser desfeita pelo app");
+      h.undone = true;
+      const u = h.undo;
+      if (u.type === "tweak") {
+        const t = tweaks.find((x) => x.id === u.id)!;
+        t.applied = u.apply;
+        log("tweak", `${u.apply ? "Aplicado" : "Desfeito"}: ${t.title}`, { ...u, apply: !u.apply });
+      } else {
+        const s = startup.find((x) => x.id === u.id)!;
+        s.enabled = u.enabled;
+        log("startup", `${u.enabled ? "Ativado" : "Desativado"} na inicialização: ${s.name}`, { ...u, enabled: !u.enabled });
+      }
+    },
+    async clearHistory() {
+      history.length = 0;
+    },
     async isElevated() {
       return false;
     },
@@ -177,6 +211,7 @@ export function createMockTools(): Tools {
       if (!t) throw new Error(`otimização desconhecida: ${id}`);
       if (t.needsAdmin) throw new Error("acesso negado: execute o app como administrador");
       t.applied = apply;
+      log("tweak", `${apply ? "Aplicado" : "Desfeito"}: ${t.title}`, { type: "tweak", id, apply: !apply });
       return { ...t };
     },
     async listStartup() {
@@ -189,6 +224,7 @@ export function createMockTools(): Tools {
       if (!s) throw new Error("o programa não está mais na inicialização");
       if (s.needsAdmin) throw new Error("acesso negado: execute o app como administrador");
       s.enabled = enabled;
+      log("startup", `${enabled ? "Ativado" : "Desativado"} na inicialização: ${s.name}`, { type: "startup", id, enabled: !enabled });
     },
     async listCleanup() {
       await delay(700);

@@ -197,6 +197,24 @@ export interface CleanResult {
   error: string | null;
 }
 
+export type RestoreOutcome =
+  | { kind: "created" }
+  | { kind: "recent" }
+  | { kind: "notAdmin" }
+  | { kind: "failed"; message: string };
+
+export type Undo = { type: "tweak"; id: string; apply: boolean } | { type: "startup"; id: string; enabled: boolean };
+
+export interface HistoryEntry {
+  id: number;
+  timeMs: number;
+  kind: string;
+  title: string;
+  detail: string;
+  undo: Undo | null;
+  undone: boolean;
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -219,6 +237,11 @@ export interface Api {
   onFinished(cb: (f: ScanFinished) => void): Promise<() => void>;
 
   isElevated(): Promise<boolean>;
+  /** Cria um ponto de restauração na primeira alteração da sessão; null se já foi feito. */
+  ensureRestorePoint(reason: string): Promise<RestoreOutcome | null>;
+  listHistory(): Promise<HistoryEntry[]>;
+  undoHistory(id: number): Promise<void>;
+  clearHistory(): Promise<void>;
   /** Reabre o app como administrador (fecha esta janela se der certo). */
   relaunchAsAdmin(): Promise<void>;
   systemReport(): Promise<Report>;
@@ -265,6 +288,10 @@ async function tauriApi(): Promise<Api> {
     onProgress: (cb) => listen<Progress>("scan-progress", (e) => cb(e.payload)),
     onFinished: (cb) => listen<ScanFinished>("scan-finished", (e) => cb(e.payload)),
     isElevated: () => invoke("is_elevated"),
+    ensureRestorePoint: (reason) => invoke("ensure_restore_point", { reason }),
+    listHistory: () => invoke("list_history"),
+    undoHistory: (id) => invoke("undo_history", { id }),
+    clearHistory: () => invoke("clear_history"),
     relaunchAsAdmin: () => invoke("relaunch_as_admin"),
     systemReport: () => invoke("system_report"),
     listTweaks: () => invoke("list_tweaks"),

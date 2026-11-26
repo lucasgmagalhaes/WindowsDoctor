@@ -12,6 +12,8 @@
 
 pub mod cleanup;
 pub mod diagnostics;
+pub mod history;
+pub mod restore;
 pub mod elevation;
 pub mod startup;
 pub mod tweaks;

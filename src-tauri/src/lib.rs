@@ -1,5 +1,6 @@
 mod cleanup;
 
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -7,7 +8,7 @@ use std::time::Duration;
 
 use diskscan::{Crumb, FileInfo, NodeKind, NodeView, Progress, ScanOptions, ScanStats, Tree};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 mod tools;
 
@@ -300,11 +301,13 @@ struct DeleteResult {
 #[tauri::command]
 async fn delete_node(
     state: State<'_, Arc<AppState>>,
+    history: State<'_, Arc<systools::history::History>>,
     id: Option<u32>,
     path: Option<String>,
     permanent: bool,
 ) -> CmdResult<DeleteResult> {
     let state = state.inner().clone();
+    let history = history.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let path = with_tree(&state, |t| {
             let (id, path) = match (id, path) {
@@ -346,6 +349,16 @@ async fn delete_node(
         with_tree(&state, |t| match res {
             Ok(()) => {
                 let freed = t.remove_path(&path).unwrap_or(0);
+                history.record(
+                    "delete",
+                    format!(
+                        "{} {}",
+                        if permanent { "Excluído permanentemente:" } else { "Enviado para a Lixeira:" },
+                        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                    ),
+                    format!("{} · {}", path.display(), systools::history::fmt_bytes(freed)),
+                    None,
+                );
                 Ok(DeleteResult {
                     freed,
                     stats: t.stats(),
@@ -404,17 +417,27 @@ struct CleanupRunResult {
 async fn cleanup_run(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
+    history: State<'_, Arc<systools::history::History>>,
     ids: Vec<String>,
 ) -> CmdResult<CleanupRunResult> {
     if state.progress.lock().map_err(|e| e.to_string())?.is_some() {
         return Err("aguarde a varredura em andamento terminar".into());
     }
     let state = state.inner().clone();
+    let history = history.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let total = ids.len();
         let (results, touched) = cleanup::run(&ids, |index, title| {
             let _ = app.emit("cleanup-progress", CleanupProgress { index, total, title: title.into() });
         });
+        let freed: u64 = results.iter().map(|r| r.freed).sum();
+        let names: Vec<&str> = results.iter().map(|r| r.title).collect();
+        history.record(
+            "cleanup",
+            format!("Limpeza automática: {} liberados", systools::history::fmt_bytes(freed)),
+            names.join(", "),
+            None,
+        );
         let mut guard = state.tree.lock().map_err(|e| e.to_string())?;
         if let Some(t) = guard.as_mut() {
             for path in touched {
@@ -452,6 +475,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(AppState::default()))
+        .manage(tools::RestoreSession::default())
+        .setup(|app| {
+            let path = app.path().app_local_data_dir().ok().map(|d| d.join("history.json"));
+            app.manage(Arc::new(systools::history::History::load(path)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_drives,
             start_scan,
@@ -470,6 +499,10 @@ pub fn run() {
             tools::set_tweak,
             tools::list_startup,
             tools::set_startup,
+            tools::ensure_restore_point,
+            tools::list_history,
+            tools::undo_history,
+            tools::clear_history,
             tools::list_cleanup,
             tools::run_cleanup,
             cleanup_analyze,

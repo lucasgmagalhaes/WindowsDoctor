@@ -96,8 +96,8 @@ pub struct CleanupReport {
 #[serde(rename_all = "camelCase")]
 pub struct CategoryResult {
     id: String,
-    title: &'static str,
-    freed: u64,
+    pub title: &'static str,
+    pub freed: u64,
     files: u64,
     /// Items that could not be deleted (in use, no permission…).
     failed: u64,

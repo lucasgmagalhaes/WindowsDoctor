@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { StartupEntry, Tweak } from "../api";
 import type { ToolProps } from "../App";
+import { beforeChange } from "../safety";
 import { AdminNotice, Loading, Toggle, ToolPage } from "../components/ToolLayout";
 
 export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) {
@@ -45,6 +46,7 @@ export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) 
 
   const setTweak = (t: Tweak, apply: boolean) =>
     withBusy(t.id, async () => {
+      await beforeChange(api, t.title, notify);
       const n = await api.setTweak(t.id, apply);
       setTweaks((list) => list?.map((x) => (x.id === t.id ? n : x)) ?? null);
       const message = !apply && t.id === "high_performance_plan"
@@ -55,6 +57,7 @@ export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) 
 
   const toggleStartup = (s: StartupEntry, enabled: boolean) =>
     withBusy(s.id, async () => {
+      await beforeChange(api, `Inicialização: ${s.name}`, notify);
       await api.setStartup(s.id, enabled);
       setStartup((list) => list?.map((x) => (x.id === s.id ? { ...x, enabled } : x)) ?? null);
     });
