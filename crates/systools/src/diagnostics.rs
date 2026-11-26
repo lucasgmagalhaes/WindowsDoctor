@@ -194,11 +194,29 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+/// Adaptadores que não são uma placa de vídeo física (básico, remoto,
+/// máquina virtual). Os drivers deles vêm com o Windows e têm datas antigas.
+fn is_virtual_or_basic(g: &Gpu) -> bool {
+    let n = g.name.to_lowercase();
+    [
+        "basic display",
+        "basic render",
+        "remote display",
+        "parsec",
+        "hyper-v",
+        "vmware",
+        "virtualbox",
+        "virtual display",
+        "citrix",
+        "qxl",
+        "spice",
+    ]
+    .iter()
+    .any(|k| n.contains(k))
+}
+
 fn real_gpus(raw: &RawSystem) -> impl Iterator<Item = &Gpu> {
-    raw.gpus.iter().filter(|g| {
-        let n = g.name.to_lowercase();
-        !n.contains("basic display") && !n.contains("remote display") && !n.contains("parsec")
-    })
+    raw.gpus.iter().filter(|g| !is_virtual_or_basic(g))
 }
 
 pub fn evaluate(raw: &RawSystem) -> Report {
@@ -318,6 +336,11 @@ fn check_driver_age(raw: &RawSystem) -> Check {
                 format!("O driver de {} tem {} meses.", g.name, d / 30),
             ),
             Some(_) => (Status::Ok, "Driver de vídeo recente.".to_string()),
+            None if real_gpus(raw).next().is_none() => (
+                Status::Ok,
+                "Só há adaptador de vídeo virtual ou remoto (máquina virtual ou acesso remoto); nada a verificar."
+                    .to_string(),
+            ),
             None => (Status::Info, "Não foi possível ler a data do driver.".to_string()),
         }
     };
@@ -781,6 +804,17 @@ mod tests {
             ..Gpu::default()
         }];
         assert_eq!(get(&evaluate(&raw), "driver_age").status, Status::Crit);
+    }
+
+    #[test]
+    fn virtual_adapters_are_not_checked_for_driver_age() {
+        let mut raw = base();
+        raw.gpus = vec![Gpu {
+            name: "Microsoft Hyper-V Video".into(),
+            driver_age_days: Some(7450),
+            ..Gpu::default()
+        }];
+        assert_eq!(get(&evaluate(&raw), "driver_age").status, Status::Ok);
     }
 
     #[test]
