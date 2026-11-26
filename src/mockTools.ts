@@ -1,10 +1,9 @@
 // Dados simulados dos módulos Limpeza, Diagnóstico e Otimizações para
 // desenvolver a interface no navegador.
 
-import type { Api, HistoryEntry, CleanupTarget, Report, StartupEntry, Tweak } from "./api";
+import type { Api, HistoryEntry, Report, StartupEntry, Tweak } from "./api";
 
 const GB = 1024 ** 3;
-const MB = 1024 ** 2;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const report: Report = {
@@ -136,23 +135,11 @@ const startup: StartupEntry[] = [
   { id: "2:DisplayWidget Center", name: "DisplayWidget Center", command: '"C:\\Program Files (x86)\\ASUS\\DisplayWidget Center\\DisplayWidgetCenter.exe" -startup', location: "Registro 32 bits (todos os usuários)", enabled: true, needsAdmin: true },
 ];
 
-const cleanup: CleanupTarget[] = [
-  ["user_temp", "Arquivos temporários do usuário", "Pasta %TEMP%. Arquivos usados nas últimas 24 horas são mantidos.", false, 6.8 * GB, 18233],
-  ["windows_temp", "Arquivos temporários do Windows", "Pasta Windows\\Temp. Arquivos usados nas últimas 24 horas são mantidos.", true, 1.4 * GB, 912],
-  ["windows_update", "Cache do Windows Update", "Instaladores de atualizações já baixadas. O Windows baixa de novo se precisar.", true, 3.4 * GB, 211],
-  ["delivery_optimization", "Otimização de Entrega", "Cópias de atualizações compartilhadas com outros PCs.", true, 890 * MB, 37],
-  ["shader_cache", "Cache de shaders da placa de vídeo", "DirectX, NVIDIA, AMD e Intel. É recriado; jogos podem engasgar um pouco na primeira vez. Limpar ajuda quando há artefatos ou travamentos após atualizar o driver.", false, 1.9 * GB, 4120],
-  ["browser_cache", "Cache dos navegadores", "Chrome, Edge, Brave e Firefox. Senhas, histórico e cookies não são afetados. Feche os navegadores antes para liberar mais.", false, 2.7 * GB, 30981],
-  ["error_reports", "Relatórios de erro e despejos de falha", "Relatórios do Windows (WER) e despejos de programas que travaram. Não inclui os minidumps de tela azul.", false, 640 * MB, 58],
-  ["recycle_bin", "Lixeira", "Esvazia a Lixeira de todas as unidades. Não dá para desfazer.", false, 4.1 * GB, 133],
-].map(([id, title, description, needsAdmin, size, files]) => ({
-  id, title, description, needsAdmin, size: Math.round(size as number), files, paths: [], note: null,
-} as CleanupTarget));
 
 type Tools = Pick<
   Api,
   | "isElevated" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
-  | "listStartup" | "setStartup" | "listCleanup" | "runCleanup"
+  | "listStartup" | "setStartup"
 >;
 
 const history: HistoryEntry[] = [
@@ -225,25 +212,6 @@ export function createMockTools(): Tools {
       if (s.needsAdmin) throw new Error("acesso negado: execute o app como administrador");
       s.enabled = enabled;
       log("startup", `${enabled ? "Ativado" : "Desativado"} na inicialização: ${s.name}`, { type: "startup", id, enabled: !enabled });
-    },
-    async listCleanup() {
-      await delay(700);
-      return cleanup.map((c) => ({ ...c }));
-    },
-    async runCleanup(ids) {
-      await delay(1200);
-      return ids.map((id) => {
-        const c = cleanup.find((x) => x.id === id);
-        if (!c) return { id, freed: 0, deleted: 0, skipped: 0, error: "item de limpeza desconhecido" };
-        if (c.needsAdmin) return { id, freed: 0, deleted: 0, skipped: c.files, error: null };
-        // Alguns arquivos ficam "em uso", como no Windows real.
-        const skipped = Math.floor(c.files * 0.04);
-        const freed = Math.round(c.size * 0.93);
-        const deleted = c.files - skipped;
-        c.size -= freed;
-        c.files = skipped;
-        return { id, freed, deleted, skipped, error: null };
-      });
     },
   };
 }

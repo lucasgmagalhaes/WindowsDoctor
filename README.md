@@ -6,9 +6,10 @@ picked from the bar on the left:
 | Module | What it does |
 | --- | --- |
 | **Disk map** | Shows **where disk space is being used** in each partition, from the drive root down to the last folder, so you can find what to delete. |
-| **Cleanup** | Measures and empties temp folders and caches that Windows and apps rebuild on their own. |
+| **Cleanup** | Measures and deletes caches, temp files and installer leftovers that Windows and apps rebuild on their own. |
 | **Diagnostics** | Reads the event logs and the hardware to explain black screens, crashes, slowness and disk errors. Read only. |
 | **Optimizations** | Windows tweaks (display, power, games, storage) and the list of programs that start with Windows. |
+| **History** | Every change the app made, with undo for tweaks and startup programs, and an optional System Restore point before the first change of each session. |
 
 ## Why sunburst/treemap instead of a graph
 
@@ -29,23 +30,6 @@ visual. Here area is proportional to size:
 - **Cleanup hints** for known space hogs: `Windows.old`, `$Recycle.Bin`,
   `hiberfil.sys`, `Temp`, Windows Update cache, `node_modules`, package caches (npm, gradle, nuget…),
   WSL/Docker disks, `WinSxS` (with the right DISM command) and others.
-- **Automatic cleanup** (sidebar → *Limpeza automática*): finds and deletes, in one go, what Windows and
-  apps recreate on their own. It measures each category first and lets you pick:
-  - System: user and Windows `Temp` (files newer than 24 h are kept), Windows Update cache (the service is
-    stopped while cleaning), Delivery Optimization, crash dumps/WER reports, CBS/DISM/Panther logs, thumbnail
-    and icon cache, Recycle Bin.
-  - Browsers (Chrome, Edge, Brave, Opera, Vivaldi, Firefox): caches only; history, passwords and logins stay.
-  - Apps: Discord, VS Code, Slack, Teams, Spotify… caches; DirectX/NVIDIA/AMD/Intel/Steam shader caches.
-  - Installers: leftovers of NVIDIA/AMD/Intel driver installers.
-  - Development: npm, Yarn, pnpm, pip, NuGet HTTP, Go and Cargo caches.
-  - Off by default (marked *revisar*): Recycle Bin, `Windows.old` and other previous Windows installs, `DISM
-    /StartComponentCleanup` (WinSxS), installers (`.exe`/`.msi`/`.msix`) in Downloads, and local package
-    repositories (Gradle, NuGet, Maven, pnpm store).
-
-  Deletion is permanent; files in use are skipped and reported. System categories need admin; the dialog
-  has a button to restart the app elevated. The list of locations is fixed in `src-tauri/src/cleanup.rs`;
-  the frontend only sends category ids. After cleaning, the affected folders of the current scan are
-  updated without a full rescan.
 - **Delete** to the Recycle Bin or permanently, with confirmation. The tree and totals update with no new scan.
 - **Rescan** a single folder (⟳) after cleaning it by other means.
 - Open any item in Explorer.
@@ -57,15 +41,24 @@ visual. Here area is proportional to size:
 
 ## Cleanup
 
-Only the *contents* of a fixed list of folders is deleted; the UI picks targets by id, never by path.
-Files in use are skipped, and links/junctions are never followed.
+The *Limpeza* module (also reachable from the disk map sidebar). Finds and deletes, in one go, what Windows and
+apps recreate on their own. It measures each category first and lets you pick:
 
-- User temp (`%TEMP%`) and `Windows\Temp`: only files untouched for 24 hours.
-- Windows Update download cache and Delivery Optimization cache (admin).
-- GPU shader caches (DirectX, NVIDIA, AMD, Intel).
-- Browser caches (Chrome, Edge, Brave, Firefox). Passwords, history and cookies are not touched.
-- Windows Error Reporting and app crash dumps (BSOD minidumps are kept).
-- Recycle Bin.
+- System: user and Windows `Temp` (files newer than 24 h are kept), Windows Update cache (the service is
+  stopped while cleaning), Delivery Optimization, crash dumps/WER reports, CBS/DISM/Panther logs, thumbnail
+  and icon cache, Recycle Bin.
+- Browsers (Chrome, Edge, Brave, Opera, Vivaldi, Firefox): caches only; history, passwords and logins stay.
+- Apps: Discord, VS Code, Slack, Teams, Spotify… caches; DirectX/NVIDIA/AMD/Intel/Steam shader caches.
+- Installers: leftovers of NVIDIA/AMD/Intel driver installers.
+- Development: npm, Yarn, pnpm, pip, NuGet HTTP, Go and Cargo caches.
+- Off by default (marked *revisar*): Recycle Bin, `Windows.old` and other previous Windows installs, `DISM
+  /StartComponentCleanup` (WinSxS), installers (`.exe`/`.msi`/`.msix`) in Downloads, and local package
+  repositories (Gradle, NuGet, Maven, pnpm store).
+
+Deletion is permanent; files in use are skipped and reported. System categories need admin; the page
+has a button to restart the app elevated. The list of locations is fixed in `src-tauri/src/cleanup.rs`;
+the frontend only sends category ids. After cleaning, the affected folders of the current scan are
+updated without a full rescan.
 
 ## Diagnostics
 
@@ -103,7 +96,7 @@ Changes under `HKLM` need administrator rights. The app shows whether it is elev
 
 ```
 crates/diskscan/     Scanner and tree (pure Rust, no Tauri; has tests)
-crates/systools/     Cleanup, diagnostics, optimizations, startup programs (Windows APIs behind cfg; tests run anywhere)
+crates/systools/     Diagnostics, optimizations, startup programs, restore points, history (Windows APIs behind cfg; tests run anywhere)
 src-tauri/           Tauri app: commands (scan, query, delete, Explorer, tools)
 src/                 React frontend (d3-hierarchy for the layouts)
 src/modules/         One component per module (DiskMap, Cleanup, Diagnostics, Optimize)

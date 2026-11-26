@@ -734,6 +734,11 @@ pub fn run(ids: &[String], mut on_start: impl FnMut(usize, &str)) -> (Vec<Catego
     (results, touched)
 }
 
+/// Whether the app runs elevated (administrator).
+pub fn is_admin() -> bool {
+    win::is_admin()
+}
+
 /// Starts a new elevated instance of the app (UAC prompt).
 pub fn relaunch_elevated() -> Result<(), String> {
     win::relaunch_elevated()

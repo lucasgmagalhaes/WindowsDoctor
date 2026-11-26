@@ -19,14 +19,20 @@ function defaultSelection(r: CleanupReport): Set<string> {
   return new Set(r.categories.filter((c) => c.level === "safe" && hasContent(c) && usable(c, r.isAdmin)).map((c) => c.id));
 }
 
+/**
+ * Limpeza automática. Com `inline` ocupa a página do módulo Limpeza; sem ele
+ * abre como diálogo e `onClose` fecha.
+ */
 export function CleanupDialog({
   api,
   onClose,
   onFinished,
+  inline = false,
 }: {
   api: Api;
-  onClose: () => void;
+  onClose?: () => void;
   onFinished: (run: CleanupRunResult) => void;
+  inline?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "analyzing" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -61,11 +67,13 @@ export function CleanupDialog({
   }, [api]);
 
   const busy = phase.kind === "analyzing" || phase.kind === "running";
+  const close = () => onClose?.();
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
+    if (inline) return;
+    const k = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose?.();
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [busy, onClose]);
+  }, [busy, onClose, inline]);
 
   const report = "report" in phase ? phase.report : null;
   const groups = useMemo(() => {
@@ -100,10 +108,8 @@ export function CleanupDialog({
     }
   };
 
-  return (
-    <div className="overlay" onClick={() => !busy && onClose()}>
-      <div className="dialog cleanup-dialog" role="dialog" aria-modal aria-label="Limpeza automática" onClick={(e) => e.stopPropagation()}>
-        <h3>Limpeza automática</h3>
+  const body = (
+    <>
 
         {phase.kind === "analyzing" && (
           <div className="cleanup-wait">
@@ -116,9 +122,11 @@ export function CleanupDialog({
           <>
             <p className="hint-box system">{phase.message}</p>
             <div className="dialog-actions">
-              <button className="btn" onClick={onClose}>
-                Fechar
-              </button>
+              {!inline && (
+                <button className="btn" onClick={close}>
+                  Fechar
+                </button>
+              )}
               <button className="btn primary" onClick={analyze}>
                 Analisar de novo
               </button>
@@ -224,9 +232,11 @@ export function CleanupDialog({
                 Analisar de novo
               </button>
               <span className="spacer" />
-              <button className="btn" onClick={onClose}>
-                Cancelar
-              </button>
+              {!inline && (
+                <button className="btn" onClick={close}>
+                  Cancelar
+                </button>
+              )}
               <button className="btn danger" disabled={!chosen.length} onClick={start}>
                 Limpar {chosen.length} {chosen.length === 1 ? "categoria" : "categorias"}
                 {chosenSize > 0 && ` (${formatBytes(chosenSize)})`}
@@ -276,12 +286,23 @@ export function CleanupDialog({
                 Analisar de novo
               </button>
               <span className="spacer" />
-              <button className="btn primary" onClick={onClose}>
-                Fechar
-              </button>
+              {!inline && (
+                <button className="btn primary" onClick={close}>
+                  Fechar
+                </button>
+              )}
             </div>
           </>
         )}
+    </>
+  );
+
+  if (inline) return <div className="cleanup-inline">{body}</div>;
+  return (
+    <div className="overlay" onClick={() => !busy && close()}>
+      <div className="dialog cleanup-dialog" role="dialog" aria-modal aria-label="Limpeza automática" onClick={(e) => e.stopPropagation()}>
+        <h3>Limpeza automática</h3>
+        {body}
       </div>
     </div>
   );

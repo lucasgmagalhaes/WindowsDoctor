@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { Api } from "./api";
+import type { Api, CleanupRunResult } from "./api";
 import { getApi } from "./api";
 import { DiskMap } from "./modules/DiskMap";
 import { Cleanup } from "./modules/Cleanup";
@@ -39,6 +39,8 @@ export default function App() {
   const [active, setActive] = useState<ModuleId>("diskmap");
   // Módulos já abertos continuam montados para não perder o estado.
   const [visited, setVisited] = useState<Set<ModuleId>>(new Set(["diskmap"]));
+  // Muda quando a Limpeza altera o disco, para o mapa se atualizar.
+  const [cleaned, setCleaned] = useState<CleanupRunResult | null>(null);
   const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(null);
 
   const notify = useCallback<Notify>((text, kind = "ok") => {
@@ -95,10 +97,10 @@ export default function App() {
             Modo demonstração (navegador): dados simulados. Rode com <code>npm run tauri dev</code> para usar no Windows de verdade.
           </div>
         )}
-        <DiskMap api={api} notify={notify} active={active === "diskmap"} />
+        <DiskMap api={api} notify={notify} active={active === "diskmap"} cleaned={cleaned} onOpenCleanup={() => open("cleanup")} />
         {visited.has("cleanup") && (
           <div className="module" hidden={active !== "cleanup"}>
-            <Cleanup {...tool} />
+            <Cleanup {...tool} onCleaned={setCleaned} />
           </div>
         )}
         {visited.has("diagnostics") && (

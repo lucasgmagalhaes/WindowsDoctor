@@ -178,25 +178,6 @@ export interface StartupEntry {
   needsAdmin: boolean;
 }
 
-export interface CleanupTarget {
-  id: string;
-  title: string;
-  description: string;
-  needsAdmin: boolean;
-  size: number;
-  files: number;
-  paths: string[];
-  note: string | null;
-}
-
-export interface CleanResult {
-  id: string;
-  freed: number;
-  deleted: number;
-  skipped: number;
-  error: string | null;
-}
-
 export type RestoreOutcome =
   | { kind: "created" }
   | { kind: "recent" }
@@ -249,8 +230,6 @@ export interface Api {
   setTweak(id: string, apply: boolean): Promise<Tweak>;
   listStartup(): Promise<StartupEntry[]>;
   setStartup(id: string, enabled: boolean): Promise<void>;
-  listCleanup(): Promise<CleanupTarget[]>;
-  runCleanup(ids: string[]): Promise<CleanResult[]>;
 }
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -298,8 +277,6 @@ async function tauriApi(): Promise<Api> {
     setTweak: (id, apply) => invoke("set_tweak", { id, apply }),
     listStartup: () => invoke("list_startup"),
     setStartup: (id, enabled) => invoke("set_startup", { id, enabled }),
-    listCleanup: () => invoke("list_cleanup"),
-    runCleanup: (ids) => invoke("run_cleanup", { ids }),
   };
 }
 

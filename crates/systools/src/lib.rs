@@ -1,6 +1,5 @@
 //! Ferramentas do sistema usadas pelo app além do mapa de disco:
 //!
-//! - [`cleanup`]: limpeza de pastas temporárias e caches conhecidos.
 //! - [`diagnostics`]: relatório do sistema e verificações (driver de vídeo,
 //!   erros de hardware, disco, desligamentos inesperados...).
 //! - [`tweaks`]: otimizações reversíveis (MPO, plano de energia, Game DVR...).
@@ -10,11 +9,9 @@
 //! sistemas as funções devolvem erro ou listas vazias, o que permite compilar
 //! e testar a lógica pura em qualquer lugar.
 
-pub mod cleanup;
 pub mod diagnostics;
 pub mod history;
 pub mod restore;
-pub mod elevation;
 pub mod startup;
 pub mod tweaks;
 

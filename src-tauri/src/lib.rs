@@ -503,8 +503,6 @@ pub fn run() {
             tools::list_history,
             tools::undo_history,
             tools::clear_history,
-            tools::list_cleanup,
-            tools::run_cleanup,
             cleanup_analyze,
             cleanup_run,
             relaunch_as_admin,

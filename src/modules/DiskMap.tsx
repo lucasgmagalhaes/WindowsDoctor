@@ -7,7 +7,6 @@ import { ItemList } from "../components/ItemList";
 import { TopFiles } from "../components/TopFiles";
 import { Sidebar } from "../components/Sidebar";
 import { DeleteDialog, ScanOverlay, type DeleteTarget } from "../components/Dialogs";
-import { CleanupDialog } from "../components/Cleanup";
 import { formatBytes, formatCount, formatPercent, nodeLabel } from "../format";
 import type { Notify } from "../App";
 
@@ -27,9 +26,12 @@ interface Props {
   notify: Notify;
   /** O módulo está visível (atalhos de teclado só valem nele). */
   active: boolean;
+  /** Último resultado da Limpeza; o backend já atualizou a varredura. */
+  cleaned: CleanupRunResult | null;
+  onOpenCleanup: () => void;
 }
 
-export function DiskMap({ api, notify, active }: Props) {
+export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [scanTarget, setScanTarget] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -42,7 +44,6 @@ export function DiskMap({ api, notify, active }: Props) {
   const [tab, setTab] = useState<Tab>("explore");
   const [hovered, setHovered] = useState<RNode | null>(null);
   const [toDelete, setToDelete] = useState<DeleteTarget | null>(null);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [minFileSize, setMinFileSize] = useState(1024 * 1024);
   const rescanReturnPath = useRef<string | null>(null);
 
@@ -143,11 +144,11 @@ export function DiskMap({ api, notify, active }: Props) {
     const k = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       const typing = !!t && (t.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(t.tagName));
-      if (e.key === "Backspace" && active && !typing && !toDelete && !cleanupOpen && !scanTarget) goUp();
+      if (e.key === "Backspace" && active && !typing && !toDelete && !scanTarget) goUp();
     };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-  }, [goUp, toDelete, cleanupOpen, scanTarget, active]);
+  }, [goUp, toDelete, scanTarget, active]);
 
   const startScan = async (path: string) => {
     setScanTarget(path);
@@ -202,14 +203,16 @@ export function DiskMap({ api, notify, active }: Props) {
     }
   };
 
-  const cleanupFinished = (run: CleanupRunResult) => {
-    if (run.stats) {
-      setStats(run.stats);
+  // The backend already updated the folders it cleaned in the current scan.
+  useEffect(() => {
+    if (!cleaned) return;
+    if (cleaned.stats) {
+      setStats(cleaned.stats);
       setHovered(null);
       setVersion((v) => v + 1);
     }
     refreshDrives(api);
-  };
+  }, [cleaned, api, refreshDrives]);
 
   const scanDrive = stats ? drives.find((d) => d.mount === stats.root) : undefined;
   const unaccounted = scanDrive ? scanDrive.total - scanDrive.available - stats!.totalSize : 0;
@@ -234,7 +237,7 @@ export function DiskMap({ api, notify, active }: Props) {
         onScan={startScan}
         onPickFolder={pickFolder}
         onRefreshDrives={() => refreshDrives(api)}
-        onCleanup={() => setCleanupOpen(true)}
+        onCleanup={onOpenCleanup}
       />
 
       <main className="main">
@@ -379,7 +382,6 @@ export function DiskMap({ api, notify, active }: Props) {
 
       {scanTarget && <ScanOverlay progress={progress} target={scanTarget} onCancel={() => api.cancelScan()} />}
       {toDelete && <DeleteDialog target={toDelete} onConfirm={confirmDelete} onClose={() => setToDelete(null)} />}
-      {cleanupOpen && <CleanupDialog api={api} onClose={() => setCleanupOpen(false)} onFinished={cleanupFinished} />}
     </div>
   );
 }

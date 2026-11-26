@@ -110,9 +110,3 @@ pub(crate) fn string_values(hive: Hive, path: &str) -> Result<Vec<(String, Strin
     Ok(out)
 }
 
-/// `true` se o processo consegue escrever em HKLM, o que na prática só
-/// acontece quando ele roda elevado (com o UAC ligado).
-pub(crate) fn can_write_machine() -> bool {
-    HKLM.open_subkey_with_flags(r"SYSTEM\CurrentControlSet\Control\Session Manager", KEY_SET_VALUE)
-        .is_ok()
-}

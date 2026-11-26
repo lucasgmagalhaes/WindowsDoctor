@@ -1,4 +1,5 @@
-//! Comandos dos módulos Limpeza, Diagnóstico e Otimizações.
+//! Comandos dos módulos Diagnóstico, Otimizações e Histórico (a Limpeza fica
+//! em `cleanup.rs`).
 //!
 //! Tudo que pode demorar (PowerShell, varrer caches) roda fora da thread
 //! principal para a janela não congelar.
@@ -6,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use systools::{cleanup, diagnostics, elevation, restore, startup, tweaks};
+use systools::{diagnostics, restore, startup, tweaks};
 use tauri::State;
 
 use systools::history::{History, Undo};
@@ -21,7 +22,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + '
 
 #[tauri::command]
 pub fn is_elevated() -> bool {
-    elevation::is_elevated()
+    crate::cleanup::is_admin()
 }
 
 #[tauri::command]
@@ -94,7 +95,7 @@ pub async fn ensure_restore_point(
     history: State<'_, Arc<History>>,
     reason: String,
 ) -> CmdResult<Option<restore::Outcome>> {
-    let elevated = elevation::is_elevated();
+    let elevated = crate::cleanup::is_admin();
     // Sem administrador não dá para criar; tenta de novo se o app for elevado.
     if !elevated {
         return Ok(Some(restore::Outcome::NotAdmin));
@@ -146,29 +147,6 @@ pub async fn undo_history(history: State<'_, Arc<History>>, id: u64) -> CmdResul
         }
         history.mark_undone(id);
         Ok(())
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn list_cleanup() -> CmdResult<Vec<cleanup::TargetInfo>> {
-    blocking(|| Ok(cleanup::targets().iter().map(cleanup::measure).collect())).await
-}
-
-#[tauri::command]
-pub async fn run_cleanup(ids: Vec<String>) -> CmdResult<Vec<cleanup::CleanResult>> {
-    blocking(move || {
-        Ok(ids
-            .iter()
-            .map(|id| match cleanup::find(id) {
-                Some(t) => cleanup::clean(&t),
-                None => cleanup::CleanResult {
-                    id: id.clone(),
-                    error: Some("item de limpeza desconhecido".into()),
-                    ..Default::default()
-                },
-            })
-            .collect())
     })
     .await
 }

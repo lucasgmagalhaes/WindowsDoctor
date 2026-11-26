@@ -29,6 +29,3 @@ pub(crate) fn set_binary(_: Hive, _: &str, _: &str, _: &[u8]) -> Result<(), Stri
 pub(crate) fn string_values(_: Hive, _: &str) -> Result<Vec<(String, String)>, String> {
     no()
 }
-pub(crate) fn can_write_machine() -> bool {
-    false
-}
