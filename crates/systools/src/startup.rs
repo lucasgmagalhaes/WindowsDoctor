@@ -103,6 +103,119 @@ fn entries_of(o: &Origin) -> Result<Vec<(String, String)>, String> {
     }
 }
 
+// ---------------------------------------------------------------- tarefas e serviços
+
+const EXTRA_SCRIPT: &str = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$tasks = @(Get-ScheduledTask | Where-Object {
+    $_.TaskPath -notlike '\Microsoft\*' -and
+    (@($_.Triggers) | Where-Object { $_.CimClass.CimClassName -in 'MSFT_TaskLogonTrigger', 'MSFT_TaskBootTrigger' })
+} | ForEach-Object {
+    [pscustomobject]@{
+        path = [string]$_.TaskPath
+        name = [string]$_.TaskName
+        enabled = ($_.State -ne 'Disabled')
+        command = ((@($_.Actions) | ForEach-Object { ("$($_.Execute) $($_.Arguments)").Trim() }) -join '; ')
+    }
+})
+$services = @(Get-CimInstance Win32_Service | Where-Object {
+    $_.StartMode -eq 'Auto' -and $_.PathName -and $_.PathName -notmatch '\\Windows\\'
+} | ForEach-Object {
+    [pscustomobject]@{ name = [string]$_.Name; display = [string]$_.DisplayName; command = [string]$_.PathName }
+})
+[pscustomobject]@{ tasks = $tasks; services = $services } | ConvertTo-Json -Depth 4 -Compress
+"#;
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+struct Extra {
+    tasks: Vec<ExtraTask>,
+    services: Vec<ExtraService>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+struct ExtraTask {
+    path: String,
+    name: String,
+    enabled: bool,
+    command: String,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
+struct ExtraService {
+    name: String,
+    display: String,
+    command: String,
+}
+
+fn extra_entries(json: &str) -> Vec<StartupEntry> {
+    let Ok(extra) = serde_json::from_str::<Extra>(json.trim_start_matches('\u{feff}').trim()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<StartupEntry> = extra
+        .tasks
+        .into_iter()
+        .map(|t| StartupEntry {
+            id: format!("task:{}{}", t.path, t.name),
+            name: t.name,
+            command: t.command,
+            location: "Tarefa agendada (ao entrar ou ligar)",
+            enabled: t.enabled,
+            needs_admin: true,
+        })
+        .collect();
+    out.extend(extra.services.into_iter().map(|s| StartupEntry {
+        id: format!("svc:{}", s.name),
+        name: if s.display.is_empty() { s.name } else { s.display },
+        command: s.command,
+        location: "Serviço de outro fabricante (início automático)",
+        enabled: true,
+        needs_admin: true,
+    }));
+    out
+}
+
+/// "\Pasta\Nome" → ("\Pasta\", "Nome").
+fn split_task(full: &str) -> (&str, &str) {
+    match full.rfind('\\') {
+        Some(i) => (&full[..=i], &full[i + 1..]),
+        None => ("\\", full),
+    }
+}
+
+fn set_extra(id: &str, enabled: bool) -> Option<Result<(), String>> {
+    let q = |s: &str| s.replace('\'', "''");
+    let script = if let Some(full) = id.strip_prefix("task:") {
+        let (path, name) = split_task(full);
+        format!(
+            "$ErrorActionPreference = 'Stop'; {} -TaskPath '{}' -TaskName '{}' | Out-Null",
+            if enabled { "Enable-ScheduledTask" } else { "Disable-ScheduledTask" },
+            q(path),
+            q(name)
+        )
+    } else {
+        let name = id.strip_prefix("svc:")?;
+        // "Manual": o serviço ainda pode ser iniciado pelo programa quando precisar.
+        format!(
+            "$ErrorActionPreference = 'Stop'; Set-Service -Name '{}' -StartupType {}",
+            q(name),
+            if enabled { "Automatic" } else { "Manual" }
+        )
+    };
+    Some(
+        crate::shell::powershell(&script)
+            .map(|_| ())
+            .map_err(|e| if e.contains("ccess") || e.contains("negado") {
+                "acesso negado: execute o app como administrador".to_string()
+            } else {
+                e
+            }),
+    )
+}
+
 pub fn list() -> Result<Vec<StartupEntry>, String> {
     if !cfg!(windows) {
         return Err(crate::WINDOWS_ONLY.into());
@@ -122,11 +235,17 @@ pub fn list() -> Result<Vec<StartupEntry>, String> {
             });
         }
     }
+    if let Ok(json) = crate::shell::powershell(EXTRA_SCRIPT) {
+        out.extend(extra_entries(&json));
+    }
     out.sort_by_key(|e| e.name.to_lowercase());
     Ok(out)
 }
 
 pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
+    if let Some(r) = set_extra(id, enabled) {
+        return r;
+    }
     let (index, name) = id.split_once(':').ok_or("id inválido")?;
     let o = index
         .parse::<usize>()
@@ -191,6 +310,23 @@ mod tests {
         assert!(!is_enabled(Some(&[7, 0, 0, 0])));
         let b = approved_bytes(false, 0x0102_0304_0506_0708);
         assert_eq!(b, [3, 0, 0, 0, 8, 7, 6, 5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn parses_tasks_and_services() {
+        let json = r#"{"tasks":[{"path":"\\","name":"OneDrive Updater","enabled":true,"command":"C:\\x.exe /update"},
+                                {"path":"\\ASUS\\","name":"ArmouryCrate","enabled":false,"command":"ac.exe"}],
+                       "services":[{"name":"Steam Client Service","display":"","command":"\"C:\\Steam\\steamservice.exe\" /RunAsService"}]}"#;
+        let e = extra_entries(json);
+        assert_eq!(e.len(), 3);
+        assert_eq!(e[0].id, "task:\\OneDrive Updater");
+        assert_eq!(e[1].id, "task:\\ASUS\\ArmouryCrate");
+        assert!(!e[1].enabled);
+        assert_eq!(e[2].id, "svc:Steam Client Service");
+        assert_eq!(e[2].name, "Steam Client Service");
+        assert_eq!(split_task("\\ASUS\\ArmouryCrate"), ("\\ASUS\\", "ArmouryCrate"));
+        assert_eq!(split_task("\\Raiz"), ("\\", "Raiz"));
+        assert!(extra_entries("lixo").is_empty());
     }
 
     #[test]

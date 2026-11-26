@@ -231,7 +231,10 @@ export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) 
         </h2>
         <p className="muted small">
           Cada programa ativado atrasa o início do Windows e fica consumindo memória. Desativar não desinstala nada; o
-          programa só deixa de abrir sozinho. É o mesmo ajuste da aba Inicializar do Gerenciador de Tarefas.
+          programa só deixa de abrir sozinho. Inclui as chaves do Registro e a pasta Inicializar (como na aba Inicializar do
+          Gerenciador de Tarefas), tarefas agendadas que rodam ao entrar ou ligar e serviços de outros fabricantes. Serviços
+          desligados passam para "manual": o programa ainda consegue iniciá-los quando precisar. Para religar um serviço,
+          use o Histórico.
         </p>
         {startupError && <p className="warn-text small">{startupError}</p>}
         {!startup ? (

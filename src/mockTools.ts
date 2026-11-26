@@ -171,6 +171,8 @@ const startup: StartupEntry[] = [
   { id: "0:Spotify", name: "Spotify", command: '"C:\\Users\\voce\\AppData\\Roaming\\Spotify\\Spotify.exe" /minimized', location: "Registro (este usuário)", enabled: true, needsAdmin: false },
   { id: "0:Steam", name: "Steam", command: '"C:\\Program Files (x86)\\Steam\\steam.exe" -silent', location: "Registro (este usuário)", enabled: false, needsAdmin: false },
   { id: "1:SecurityHealth", name: "SecurityHealth", command: "%windir%\\system32\\SecurityHealthSystray.exe", location: "Registro (todos os usuários)", enabled: true, needsAdmin: true },
+  { id: "task:\\ASUS\\ArmouryCrateUpdater", name: "ArmouryCrateUpdater", command: "C:\\Program Files\\ASUS\\ArmouryCrate\\Updater.exe /silent", location: "Tarefa agendada (ao entrar ou ligar)", enabled: true, needsAdmin: true },
+  { id: "svc:Steam Client Service", name: "Steam Client Service", command: '"C:\\Program Files (x86)\\Common Files\\Steam\\steamservice.exe" /RunAsService', location: "Serviço de outro fabricante (início automático)", enabled: true, needsAdmin: true },
   { id: "2:DisplayWidget Center", name: "DisplayWidget Center", command: '"C:\\Program Files (x86)\\ASUS\\DisplayWidget Center\\DisplayWidgetCenter.exe" -startup', location: "Registro 32 bits (todos os usuários)", enabled: true, needsAdmin: true },
 ];
 
