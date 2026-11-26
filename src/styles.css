@@ -310,6 +310,9 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .dup-path .badge { margin-left: auto; }
 .sticky-actions { position: sticky; bottom: -32px; padding: 12px 0; background: var(--bg); display: flex; gap: 8px; }
 
+.search { flex: 1; min-width: 220px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; }
+.programs td { vertical-align: middle; }
+
 /* histórico */
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .history-item { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }

@@ -237,6 +237,17 @@ export interface ScheduleInfo {
   nextRun: string | null;
 }
 
+export interface Program {
+  id: string;
+  name: string;
+  publisher: string;
+  version: string;
+  installDate: string | null;
+  size: number | null;
+  installLocation: string | null;
+  uninstall: string;
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -277,6 +288,12 @@ export interface Api {
   /** Leva ~15 s. */
   networkTest(): Promise<{ checks: Check[] }>;
   cleanupScheduleStatus(): Promise<ScheduleInfo>;
+  listPrograms(): Promise<Program[]>;
+  /** Abre o desinstalador do programa. */
+  uninstallProgram(id: string): Promise<void>;
+  /** Pastas que sobraram, com o tamanho. */
+  findLeftovers(id: string): Promise<[string, number][]>;
+  deleteLeftovers(paths: string[]): Promise<number>;
   /** null desliga. */
   setCleanupSchedule(frequency: Frequency | null): Promise<ScheduleInfo>;
   /** Sem pastas, procura na pasta do usuário. */
@@ -347,6 +364,10 @@ async function tauriApi(): Promise<Api> {
     systemReport: () => invoke("system_report"),
     networkTest: () => invoke("network_test"),
     cleanupScheduleStatus: () => invoke("cleanup_schedule_status"),
+    listPrograms: () => invoke("list_programs"),
+    uninstallProgram: (id) => invoke("uninstall_program", { id }),
+    findLeftovers: (id) => invoke("find_leftovers", { id }),
+    deleteLeftovers: (paths) => invoke("delete_leftovers", { paths }),
     setCleanupSchedule: (frequency) => invoke("set_cleanup_schedule", { frequency }),
     findDuplicates: (roots, minSize) => invoke("find_duplicates", { roots, minSize }),
     cancelDuplicates: () => invoke("cancel_duplicates"),

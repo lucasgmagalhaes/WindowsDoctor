@@ -110,3 +110,10 @@ pub(crate) fn string_values(hive: Hive, path: &str) -> Result<Vec<(String, Strin
     Ok(out)
 }
 
+/// Nomes das subchaves. Chave inexistente: lista vazia.
+pub(crate) fn subkeys(hive: Hive, path: &str) -> Result<Vec<String>, String> {
+    let Some(key) = open_read(hive, path).map_err(|e| describe(&e))? else {
+        return Ok(Vec::new());
+    };
+    Ok(key.enum_keys().filter_map(Result::ok).collect())
+}

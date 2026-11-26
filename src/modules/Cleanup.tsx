@@ -3,10 +3,11 @@ import type { CleanupRunResult } from "../api";
 import type { ToolProps } from "../App";
 import { CleanupDialog } from "../components/Cleanup";
 import { Duplicates } from "../components/Duplicates";
+import { Programs } from "../components/Programs";
 import { Schedule } from "../components/Schedule";
 import { ToolPage } from "../components/ToolLayout";
 
-type Tab = "auto" | "duplicates";
+type Tab = "auto" | "duplicates" | "programs";
 
 const TABS: { id: Tab; label: string; subtitle: string }[] = [
   {
@@ -19,6 +20,11 @@ const TABS: { id: Tab; label: string; subtitle: string }[] = [
     id: "duplicates",
     label: "Duplicados",
     subtitle: "Arquivos idênticos guardados em mais de um lugar.",
+  },
+  {
+    id: "programs",
+    label: "Programas",
+    subtitle: "Programas instalados com o espaço que ocupam. Desinstale pelo desinstalador do próprio programa e depois apague as pastas que sobraram.",
   },
 ];
 
@@ -53,6 +59,11 @@ export function Cleanup({ api, notify, elevated, onOpenModule, onCleaned }: Tool
         <Schedule api={api} notify={notify} elevated={elevated} />
         <CleanupDialog api={api} inline onFinished={onCleaned} />
       </div>
+      {seen.has("programs") && (
+        <div hidden={tab !== "programs"}>
+          <Programs api={api} notify={notify} />
+        </div>
+      )}
       {seen.has("duplicates") && (
         <div hidden={tab !== "duplicates"}>
           <Duplicates api={api} notify={notify} />

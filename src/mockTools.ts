@@ -1,7 +1,7 @@
 // Dados simulados dos módulos Limpeza, Diagnóstico e Otimizações para
 // desenvolver a interface no navegador.
 
-import type { Api, DuplicateGroup, HistoryEntry, Report, StartupEntry, Tweak } from "./api";
+import type { Api, DuplicateGroup, HistoryEntry, Program, Report, StartupEntry, Tweak } from "./api";
 
 const GB = 1024 ** 3;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "listPrograms" | "uninstallProgram" | "findLeftovers" | "deleteLeftovers" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -192,8 +192,31 @@ let dupGroups: DuplicateGroup[] = [
 
 let schedule = { enabled: false, nextRun: null as string | null };
 
+let programs: Program[] = [
+  { id: "0|Steam", name: "Steam", publisher: "Valve Corporation", version: "2.10.91.91", installDate: "2024-03-02", size: 1.1 * GB, installLocation: "C:\\Program Files (x86)\\Steam", uninstall: "C:\\Program Files (x86)\\Steam\\uninstall.exe" },
+  { id: "0|Adobe", name: "Adobe Photoshop 2025", publisher: "Adobe Inc.", version: "26.1", installDate: "2025-10-11", size: 5.6 * GB, installLocation: "C:\\Program Files\\Adobe\\Adobe Photoshop 2025", uninstall: "C:\\Program Files\\Common Files\\Adobe\\Installer\\Uninstaller.exe" },
+  { id: "2|Spotify", name: "Spotify", publisher: "Spotify AB", version: "1.2.50", installDate: null, size: 380 * 1024 ** 2, installLocation: null, uninstall: "Spotify.exe /uninstall" },
+  { id: "1|7zip", name: "7-Zip 24.08 (x64)", publisher: "Igor Pavlov", version: "24.08", installDate: "2024-09-01", size: 5.8 * 1024 ** 2, installLocation: "C:\\Program Files\\7-Zip", uninstall: "C:\\Program Files\\7-Zip\\Uninstall.exe" },
+  { id: "1|DWC", name: "DisplayWidget Center", publisher: "ASUSTeK COMPUTER INC.", version: "3.3.4", installDate: "2025-11-20", size: null, installLocation: null, uninstall: "MsiExec.exe /X{ABC}" },
+].sort((a, b) => (b.size ?? 0) - (a.size ?? 0));
+
 export function createMockTools(): Tools {
   return {
+    async listPrograms() {
+      await delay(500);
+      return programs.map((p) => ({ ...p }));
+    },
+    async uninstallProgram(id) {
+      await delay(300);
+      programs = programs.filter((p) => p.id !== id);
+    },
+    async findLeftovers(id) {
+      await delay(300);
+      return id === "0|Steam" ? [["C:\\Program Files (x86)\\Steam", 340 * 1024 ** 2], ["C:\\Users\\voce\\AppData\\Local\\Steam", 120 * 1024 ** 2]] : [];
+    },
+    async deleteLeftovers() {
+      return 460 * 1024 ** 2;
+    },
     async cleanupScheduleStatus() {
       return { ...schedule };
     },
