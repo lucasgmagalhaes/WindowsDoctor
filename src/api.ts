@@ -215,6 +215,16 @@ export interface BlackScreen {
   foregroundApp: string | null;
 }
 
+export type RepairKind = "sfc" | "dism" | "chkdsk" | "memory";
+
+export interface RepairOutcome {
+  kind: string;
+  title: string;
+  exitCode: number | null;
+  ok: boolean;
+  tail: string[];
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -252,6 +262,8 @@ export interface Api {
   systemReport(): Promise<Report>;
   /** Leva ~15 s. */
   networkTest(): Promise<{ checks: Check[] }>;
+  runRepair(kind: RepairKind): Promise<RepairOutcome>;
+  onRepairProgress(cb: (p: { line: string; percent: number | null }) => void): Promise<() => void>;
   listTweaks(): Promise<Tweak[]>;
   setTweak(id: string, apply: boolean): Promise<Tweak>;
   listStartup(): Promise<StartupEntry[]>;
@@ -304,6 +316,8 @@ async function tauriApi(): Promise<Api> {
     relaunchAsAdmin: () => invoke("relaunch_as_admin"),
     systemReport: () => invoke("system_report"),
     networkTest: () => invoke("network_test"),
+    runRepair: (kind) => invoke("run_repair", { kind }),
+    onRepairProgress: (cb) => listen<{ line: string; percent: number | null }>("repair-progress", (e) => cb(e.payload)),
     listTweaks: () => invoke("list_tweaks"),
     setTweak: (id, apply) => invoke("set_tweak", { id, apply }),
     listStartup: () => invoke("list_startup"),

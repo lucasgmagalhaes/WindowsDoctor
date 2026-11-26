@@ -3,6 +3,7 @@ import type { Check, CheckStatus, Report, Tweak } from "../api";
 import type { ToolProps } from "../App";
 import { beforeChange, blackScreenMonitorEnabled, setBlackScreenMonitorEnabled } from "../safety";
 import { AdminNotice, Loading, Toggle, ToolPage } from "../components/ToolLayout";
+import { Repairs } from "../components/Repairs";
 import { formatBytes } from "../format";
 
 const STATUS_LABEL: Record<CheckStatus, string> = { crit: "Problema", warn: "Atenção", info: "Dica", ok: "OK" };
@@ -242,6 +243,21 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
 
           <section className="checks">
             <div className="section-head">
+              <h2>Verificações</h2>
+            </div>
+            {report.checks.map((c) => (
+              <CheckCard
+                key={c.id}
+                check={c}
+                tweak={tweaks.find((t) => t.id === c.tweak)}
+                onApplyTweak={applyTweak}
+                onOpenModule={onOpenModule}
+              />
+            ))}
+          </section>
+
+          <section className="checks">
+            <div className="section-head">
               <h2>Rede</h2>
               <button className="btn" onClick={testNetwork} disabled={netBusy}>
                 {netBusy ? "Testando (cerca de 15 s)…" : net ? "Testar de novo" : "Testar rede"}
@@ -257,17 +273,9 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
 
           <section className="checks">
             <div className="section-head">
-              <h2>Verificações</h2>
+              <h2>Reparos</h2>
             </div>
-            {report.checks.map((c) => (
-              <CheckCard
-                key={c.id}
-                check={c}
-                tweak={tweaks.find((t) => t.id === c.tweak)}
-                onApplyTweak={applyTweak}
-                onOpenModule={onOpenModule}
-              />
-            ))}
+            <Repairs api={api} notify={notify} elevated={elevated} />
           </section>
         </>
       )}

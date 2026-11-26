@@ -14,6 +14,7 @@ pub mod diagnostics;
 pub mod history;
 pub mod monitor;
 pub mod network;
+pub mod repair;
 pub mod restore;
 pub mod startup;
 pub mod tweaks;

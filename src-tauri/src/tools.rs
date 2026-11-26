@@ -213,3 +213,43 @@ pub fn set_black_screen_monitor(
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ---------------------------------------------------------------- reparos
+
+#[derive(Default)]
+pub struct RepairRunning(Arc<AtomicBool>);
+
+/// Roda SFC, DISM, CHKDSK ou abre o teste de memória. Emite `repair-progress`.
+#[tauri::command]
+pub async fn run_repair(
+    app: AppHandle,
+    running: State<'_, RepairRunning>,
+    history: State<'_, Arc<History>>,
+    kind: String,
+) -> CmdResult<systools::repair::Outcome> {
+    use systools::repair;
+    let k = repair::Kind::parse(&kind).ok_or("reparo desconhecido")?;
+    if k != repair::Kind::Memory && !crate::cleanup::is_admin() {
+        return Err("este reparo precisa do app aberto como administrador".into());
+    }
+    let flag = running.0.clone();
+    if flag.swap(true, Ordering::SeqCst) {
+        return Err("já há um reparo em andamento".into());
+    }
+    let history = history.inner().clone();
+    let result = blocking(move || {
+        repair::run(k, |p| {
+            let _ = app.emit("repair-progress", &p);
+        })
+    })
+    .await;
+    flag.store(false, Ordering::SeqCst);
+    let outcome = result?;
+    history.record(
+        "repair",
+        format!("{}: {}", outcome.title, if outcome.ok { "concluído" } else { "terminou com erro" }),
+        outcome.tail.join(" "),
+        None,
+    );
+    Ok(outcome)
+}

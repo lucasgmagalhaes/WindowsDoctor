@@ -289,6 +289,11 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .section-head h2 { font-size: 15px; margin: 0; }
 
+.repair-item { align-items: flex-start; }
+.repair-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.repair-progress .bar { flex: none; height: 6px; }
+.repair-progress code { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* histórico */
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .history-item { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }

@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -181,8 +181,22 @@ function log(kind: string, title: string, undo: HistoryEntry["undo"]) {
   history.unshift({ id: Date.now(), timeMs: Date.now(), kind, title, detail: "", undo, undone: false });
 }
 
+const repairCbs = new Set<(p: { line: string; percent: number | null }) => void>();
+
 export function createMockTools(): Tools {
   return {
+    async runRepair(kind) {
+      if (kind !== "memory") throw new Error("este reparo precisa do app aberto como administrador");
+      for (let i = 0; i <= 100; i += 25) {
+        repairCbs.forEach((cb) => cb({ line: `Simulação ${i}%`, percent: i }));
+        await delay(200);
+      }
+      return { kind, title: "Teste de memória do Windows", exitCode: 0, ok: true, tail: ["Escolha na janela do Windows quando reiniciar."] };
+    },
+    async onRepairProgress(cb) {
+      repairCbs.add(cb);
+      return () => repairCbs.delete(cb);
+    },
     async setBlackScreenMonitor() {},
     async onBlackScreen() {
       return () => undefined;

@@ -499,6 +499,7 @@ pub fn run() {
         .manage(Arc::new(AppState::default()))
         .manage(tools::RestoreSession::default())
         .manage(tools::BlackScreenMonitor::default())
+        .manage(tools::RepairRunning::default())
         .setup(|app| {
             let path = app.path().app_local_data_dir().ok().map(|d| d.join("history.json"));
             app.manage(Arc::new(systools::history::History::load(path)));
@@ -519,6 +520,7 @@ pub fn run() {
             tools::is_elevated,
             tools::system_report,
             tools::network_test,
+            tools::run_repair,
             tools::list_tweaks,
             tools::set_tweak,
             tools::list_startup,
