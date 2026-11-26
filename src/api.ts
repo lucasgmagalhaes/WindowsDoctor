@@ -248,6 +248,8 @@ export interface Api {
 
   isElevated(): Promise<boolean>;
   appVersion(): Promise<string>;
+  /** Pergunta onde salvar e grava o HTML; false se o usuário cancelar. */
+  exportHtml(defaultName: string, html: string): Promise<boolean>;
   /** Abre uma página do GitHub no navegador. */
   openUrl(url: string): Promise<void>;
   /** Cria um ponto de restauração na primeira alteração da sessão; null se já foi feito. */
@@ -307,6 +309,13 @@ async function tauriApi(): Promise<Api> {
     isElevated: () => invoke("is_elevated"),
     appVersion: () => import("@tauri-apps/api/app").then((m) => m.getVersion()),
     openUrl: (url) => invoke("open_url", { url }),
+    exportHtml: async (defaultName, html) => {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ defaultPath: defaultName, filters: [{ name: "Página HTML", extensions: ["html"] }] });
+      if (!path) return false;
+      await invoke("save_report", { path, content: html });
+      return true;
+    },
     ensureRestorePoint: (reason) => invoke("ensure_restore_point", { reason }),
     listHistory: () => invoke("list_history"),
     setBlackScreenMonitor: (enabled) => invoke("set_black_screen_monitor", { enabled }),

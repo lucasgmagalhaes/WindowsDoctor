@@ -4,6 +4,7 @@ import type { ToolProps } from "../App";
 import { beforeChange, blackScreenMonitorEnabled, setBlackScreenMonitorEnabled } from "../safety";
 import { AdminNotice, Loading, Toggle, ToolPage } from "../components/ToolLayout";
 import { Repairs } from "../components/Repairs";
+import { reportHtml } from "../reportHtml";
 import { formatBytes } from "../format";
 
 const STATUS_LABEL: Record<CheckStatus, string> = { crit: "Problema", warn: "Atenção", info: "Dica", ok: "OK" };
@@ -108,6 +109,18 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
     }
   };
 
+  const exportReport = async () => {
+    if (!report) return;
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      if (await api.exportHtml(`relatorio-windowsdoctor-${stamp}.html`, reportHtml(report, net, new Date()))) {
+        notify("Relatório salvo.");
+      }
+    } catch (e) {
+      notify(String(e), "err");
+    }
+  };
+
   const counts = report?.checks.reduce(
     (acc, c) => ({ ...acc, [c.status]: (acc[c.status] ?? 0) + 1 }),
     {} as Partial<Record<CheckStatus, number>>,
@@ -122,6 +135,9 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
           {ranAt && <span className="muted small">Executado às {ranAt.toLocaleTimeString("pt-BR")}</span>}
           <button className="btn" onClick={copy} disabled={!report || loading}>
             Copiar relatório
+          </button>
+          <button className="btn" onClick={exportReport} disabled={!report || loading}>
+            Exportar HTML
           </button>
           <button className="btn primary" onClick={run} disabled={loading}>
             {loading ? "Analisando…" : "Executar de novo"}

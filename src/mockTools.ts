@@ -167,7 +167,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -211,6 +211,13 @@ export function createMockTools(): Tools {
           { id: "net_dns", title: "DNS", status: "ok", summary: "DNS respondendo em 22 ms.", details: ["Servidores DNS: 192.168.0.1"], actions: [], tweak: null, module: null },
         ],
       };
+    },
+    async exportHtml(name, html) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+      a.download = name;
+      a.click();
+      return true;
     },
     async appVersion() {
       return "0.1.0";

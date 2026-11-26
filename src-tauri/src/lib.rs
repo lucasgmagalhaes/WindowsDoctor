@@ -490,6 +490,18 @@ fn open_url(url: String) -> CmdResult<()> {
     Ok(())
 }
 
+/// Grava um relatório exportado. Só aceita arquivos .html, escolhidos pelo
+/// usuário na janela de salvar.
+#[tauri::command]
+fn save_report(path: String, content: String) -> CmdResult<()> {
+    let p = PathBuf::from(&path);
+    let ext = p.extension().map(|e| e.to_string_lossy().to_lowercase());
+    if ext.as_deref() != Some("html") && ext.as_deref() != Some("htm") {
+        return Err("o relatório só pode ser salvo como .html".into());
+    }
+    std::fs::write(&p, content).map_err(|e| format!("falha ao salvar {path}: {e}"))
+}
+
 // ---------------------------------------------------------------- app
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -534,6 +546,7 @@ pub fn run() {
             cleanup_run,
             relaunch_as_admin,
             open_url,
+            save_report,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar a aplicação");
