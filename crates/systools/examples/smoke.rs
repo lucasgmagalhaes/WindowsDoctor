@@ -20,6 +20,17 @@ fn main() -> ExitCode {
                 raw.events.len(),
                 raw.disks.len()
             );
+            println!(
+                "dispositivos com erro: {} | minidumps: {} | sensores: {} | reinício pendente: {} | bateria: {}",
+                raw.devices.len(),
+                raw.minidumps.len(),
+                raw.temps.len(),
+                raw.pending_reboot,
+                raw.battery.is_some()
+            );
+            for d in &raw.disks {
+                println!("disco {}: {} | SMART temp {:?} desgaste {:?}", d.name, d.health, d.temperature, d.wear);
+            }
             if raw.os.trim().is_empty() {
                 failures.push("diagnóstico: nome do Windows vazio".to_string());
             }

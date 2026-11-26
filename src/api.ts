@@ -152,7 +152,17 @@ export interface Report {
     uptimeSecs: number;
     gpus: Gpu[];
     monitors: { manufacturer: string; name: string; connection: string }[];
-    disks: { name: string; mediaType: string; health: string; size: number }[];
+    disks: {
+      name: string;
+      mediaType: string;
+      health: string;
+      size: number;
+      temperature: number | null;
+      wear: number | null;
+      powerOnHours: number | null;
+    }[];
+    temps: { label: string; celsius: number }[];
+    battery: { name: string; designCapacity: number; fullChargeCapacity: number; cycleCount: number | null } | null;
   };
   checks: Check[];
 }

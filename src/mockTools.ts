@@ -29,11 +29,36 @@ const report: Report = {
       { manufacturer: "SAM", name: "S24R35x", connection: "HDMI" },
     ],
     disks: [
-      { name: "Samsung SSD 980 1TB", mediaType: "SSD", health: "Healthy", size: 1000 * GB },
-      { name: "ST2000DM008", mediaType: "HDD", health: "Healthy", size: 2000 * GB },
+      { name: "Samsung SSD 980 1TB", mediaType: "SSD", health: "Healthy", size: 1000 * GB, temperature: 41, wear: 7, powerOnHours: 8812 },
+      { name: "ST2000DM008", mediaType: "HDD", health: "Healthy", size: 2000 * GB, temperature: 36, wear: null, powerOnHours: 21430 },
     ],
+    temps: [{ label: "NVIDIA GeForce RTX 3070", celsius: 47 }],
+    battery: null,
   },
   checks: [
+    {
+      id: "bsod",
+      title: "Telas azuis",
+      status: "warn",
+      summary: "1 tela azul nos últimos 30 dias. A mais frequente é VIDEO_TDR_FAILURE (1 vez).",
+      details: ["2026-11-12 21:03  0x116 VIDEO_TDR_FAILURE: driver ou placa de vídeo (a mesma causa das telas pretas de 2 segundos)"],
+      actions: [
+        "As telas azuis apontam para o vídeo: faça uma instalação limpa do driver (DDU) e tire overclock da placa.",
+        "Para descobrir o driver exato, abra os minidumps com o WinDbg (Microsoft Store) ou o BlueScreenView.",
+      ],
+      tweak: null,
+      module: null,
+    },
+    {
+      id: "devices",
+      title: "Dispositivos com problema",
+      status: "warn",
+      summary: "1 dispositivo com erro no Gerenciador de Dispositivos.",
+      details: ["Hub USB genérico [USB]: código 43 — o Windows parou o dispositivo porque ele relatou problemas"],
+      actions: ["Código 43 em vídeo ou USB: reinstale o driver e teste outra porta ou cabo."],
+      tweak: null,
+      module: null,
+    },
     {
       id: "display_driver",
       title: "Tela preta / driver de vídeo",

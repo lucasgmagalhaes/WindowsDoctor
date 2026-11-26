@@ -49,7 +49,9 @@ $filters = @(
     @{ LogName = 'System'; ProviderName = 'disk'; Id = 7, 11, 51, 153 },
     @{ LogName = 'System'; ProviderName = 'Ntfs'; Id = 55, 98 },
     @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Ntfs'; Id = 55, 98 },
-    @{ LogName = 'Application'; ProviderName = 'Application Error'; Id = 1000 }
+    @{ LogName = 'Application'; ProviderName = 'Application Error'; Id = 1000 },
+    @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WER-SystemErrorReporting'; Id = 1001 },
+    @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WindowsUpdateClient'; Id = 20 }
 )
 $since = $now.AddDays(-30)
 $events = @(foreach ($f in $filters) {
@@ -59,7 +61,12 @@ $events = @(foreach ($f in $filters) {
             Where-Object { $_.Level -ge 1 -and $_.Level -le 3 } |
             ForEach-Object {
                 $detail = ''
-                if ($_.Id -eq 1000 -and $_.Properties.Count -gt 0) { $detail = [string]$_.Properties[0].Value }
+                $p = $_.Properties
+                if ($_.Id -eq 1000 -and $p.Count -gt 0) { $detail = [string]$p[0].Value }
+                # Tela azul: o primeiro campo é o código de parada com os parâmetros.
+                if ($_.Id -eq 1001 -and $p.Count -gt 0) { $detail = [string]$p[0].Value }
+                # Windows Update: código de erro | título da atualização.
+                if ($_.Id -eq 20 -and $p.Count -gt 1) { $detail = ([string]$p[0].Value) + ' | ' + ([string]$p[1].Value) }
                 [pscustomobject]@{
                     provider = $_.ProviderName
                     id       = $_.Id
@@ -72,13 +79,81 @@ $events = @(foreach ($f in $filters) {
 })
 
 $disks = @(Get-PhysicalDisk | ForEach-Object {
+    # Contadores SMART: exigem administrador; ficam nulos sem ele.
+    $r = $_ | Get-StorageReliabilityCounter
+    $temp = $null; $wear = $null; $hours = $null; $rerr = $null; $werr = $null
+    if ($r) {
+        if ($r.Temperature) { $temp = [int]$r.Temperature }
+        if ($null -ne $r.Wear) { $wear = [int]$r.Wear }
+        if ($r.PowerOnHours) { $hours = [uint64]$r.PowerOnHours }
+        if ($null -ne $r.ReadErrorsUncorrected) { $rerr = [uint64]$r.ReadErrorsUncorrected }
+        if ($null -ne $r.WriteErrorsUncorrected) { $werr = [uint64]$r.WriteErrorsUncorrected }
+    }
     [pscustomobject]@{
-        name      = [string]$_.FriendlyName
-        mediaType = [string]$_.MediaType
-        health    = [string]$_.HealthStatus
-        size      = [uint64]$_.Size
+        name         = [string]$_.FriendlyName
+        mediaType    = [string]$_.MediaType
+        health       = [string]$_.HealthStatus
+        size         = [uint64]$_.Size
+        temperature  = $temp
+        wear         = $wear
+        powerOnHours = $hours
+        readErrors   = $rerr
+        writeErrors  = $werr
     }
 })
+
+# Dispositivos com problema no Gerenciador de Dispositivos (45 = desconectado, ignorado).
+$devices = @(Get-CimInstance Win32_PnPEntity -Filter 'ConfigManagerErrorCode <> 0' |
+    Where-Object { $_.ConfigManagerErrorCode -ne 45 } | ForEach-Object {
+        [pscustomobject]@{
+            name  = [string]$_.Name
+            code  = [int]$_.ConfigManagerErrorCode
+            class = [string]$_.PNPClass
+        }
+    })
+
+# Minidumps de tela azul (a pasta costuma exigir administrador).
+$minidumps = @(Get-ChildItem "$env:SystemRoot\Minidump" -Filter *.dmp | Sort-Object LastWriteTime -Descending |
+    Select-Object -First 10 | ForEach-Object {
+        [pscustomobject]@{ name = $_.Name; time = $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm') }
+    })
+
+# Temperaturas: zonas térmicas ACPI (aproximadas, exigem administrador) e nvidia-smi.
+$temps = @()
+$temps += @(Get-CimInstance -Namespace root\wmi -ClassName MSAcpi_ThermalZoneTemperature | ForEach-Object {
+    [pscustomobject]@{ label = 'Zona térmica ACPI (' + ([string]$_.InstanceName).Split('\')[-1] + ')'; celsius = [math]::Round($_.CurrentTemperature / 10 - 273.15, 1) }
+})
+$smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+if ($smi) {
+    $temps += @(& $smi.Source --query-gpu=name,temperature.gpu --format=csv,noheader,nounits | ForEach-Object {
+        $parts = $_ -split ','
+        if ($parts.Count -ge 2) { [pscustomobject]@{ label = $parts[0].Trim(); celsius = [double]$parts[1].Trim() } }
+    })
+}
+
+$pendingReboot = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+    (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending')
+
+# Bateria (notebooks): capacidade original x atual pelo relatório do powercfg.
+$battery = $null
+if (Get-CimInstance Win32_Battery) {
+    $xmlPath = Join-Path $env:TEMP 'windowsdoctor-battery.xml'
+    powercfg /batteryreport /xml /output $xmlPath | Out-Null
+    if (Test-Path $xmlPath) {
+        $b = ([xml](Get-Content $xmlPath -Raw)).BatteryReport.Batteries.Battery | Select-Object -First 1
+        if ($b) {
+            $cycles = $null
+            if ([string]$b.CycleCount -match '^\d+$') { $cycles = [int]$b.CycleCount }
+            $battery = [pscustomobject]@{
+                name               = ([string]$b.Manufacturer + ' ' + [string]$b.Id).Trim()
+                designCapacity     = [uint64]$b.DesignCapacity
+                fullChargeCapacity = [uint64]$b.FullChargeCapacity
+                cycleCount         = $cycles
+            }
+        }
+        Remove-Item $xmlPath -Force
+    }
+}
 
 $sys = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$env:SystemDrive'"
 $dwm = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\Dwm'
@@ -99,4 +174,9 @@ $power = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manage
     systemFree   = [uint64]$sys.FreeSpace
     mpoDisabled  = ($dwm.OverlayTestMode -eq 5)
     fastStartup  = ($power.HiberbootEnabled -eq 1)
+    devices      = $devices
+    minidumps    = $minidumps
+    temps        = $temps
+    pendingReboot = [bool]$pendingReboot
+    battery      = $battery
 } | ConvertTo-Json -Depth 4 -Compress

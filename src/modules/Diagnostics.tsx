@@ -149,10 +149,39 @@ export function Diagnostics({ api, notify, elevated, onRelaunchAdmin, onOpenModu
               <h3>Discos</h3>
               <dl>
                 {report.summary.disks.map((d) => (
-                  <FragmentKV key={d.name} k={d.name} v={`${d.mediaType || "?"} · ${formatBytes(d.size)}`} sub={health(d.health)} />
+                  <FragmentKV
+                    key={d.name}
+                    k={d.name}
+                    v={`${d.mediaType || "?"} · ${formatBytes(d.size)}`}
+                    sub={[
+                      health(d.health),
+                      d.temperature != null && `${d.temperature} °C`,
+                      d.wear != null && `desgaste ${d.wear}%`,
+                      d.powerOnHours != null && `${d.powerOnHours.toLocaleString("pt-BR")} h ligado`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  />
                 ))}
               </dl>
             </div>
+            {(report.summary.temps.length > 0 || report.summary.battery) && (
+              <div className="card">
+                <h3>Sensores</h3>
+                <dl>
+                  {report.summary.temps.map((t) => (
+                    <FragmentKV key={t.label} k={t.label} v={`${t.celsius.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} °C`} />
+                  ))}
+                  {report.summary.battery && (
+                    <FragmentKV
+                      k="Bateria"
+                      v={`${Math.round((report.summary.battery.fullChargeCapacity / Math.max(1, report.summary.battery.designCapacity)) * 100)}% da capacidade original`}
+                      sub={report.summary.battery.cycleCount != null ? `${report.summary.battery.cycleCount} ciclos` : undefined}
+                    />
+                  )}
+                </dl>
+              </div>
+            )}
           </section>
 
           <section className="checks">
