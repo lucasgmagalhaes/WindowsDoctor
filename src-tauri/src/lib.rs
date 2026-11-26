@@ -727,6 +727,7 @@ pub fn run() {
             tools::network_test,
             tools::run_repair,
             tools::shadow_info,
+            tools::boot_report,
             tools::delete_old_shadows,
             tools::set_shadow_limit,
             dupes::find_duplicates,

@@ -298,3 +298,8 @@ pub async fn set_shadow_limit(history: State<'_, Arc<History>>, percent: u8) -> 
     })
     .await
 }
+
+#[tauri::command]
+pub async fn boot_report() -> CmdResult<systools::boot::BootReport> {
+    blocking(systools::boot::run).await
+}

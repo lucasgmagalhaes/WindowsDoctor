@@ -177,7 +177,7 @@ const startup: StartupEntry[] = [
 
 type Tools = Pick<
   Api,
-  | "isElevated" | "shadowInfo" | "deleteOldShadows" | "setShadowLimit" | "listPrograms" | "uninstallProgram" | "findLeftovers" | "deleteLeftovers" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
+  | "isElevated" | "bootReport" | "shadowInfo" | "deleteOldShadows" | "setShadowLimit" | "listPrograms" | "uninstallProgram" | "findLeftovers" | "deleteLeftovers" | "cleanupScheduleStatus" | "setCleanupSchedule" | "findDuplicates" | "cancelDuplicates" | "deleteDuplicates" | "onDuplicatesProgress" | "exportHtml" | "runRepair" | "onRepairProgress" | "networkTest" | "setBlackScreenMonitor" | "onBlackScreen" | "appVersion" | "openUrl" | "ensureRestorePoint" | "listHistory" | "undoHistory" | "clearHistory" | "relaunchAsAdmin" | "systemReport" | "listTweaks" | "setTweak"
   | "listStartup" | "setStartup"
 >;
 
@@ -366,6 +366,22 @@ export function createMockTools(): Tools {
       t.applied = apply;
       log("tweak", `${apply ? "Aplicado" : "Desfeito"}: ${t.title}`, { type: "tweak", id, apply: !apply });
       return { ...t };
+    },
+    async bootReport() {
+      await delay(600);
+      return {
+        boots: [
+          { time: "2026-11-26 08:02", bootMs: 48200, mainPathMs: 21300, postBootMs: 26900 },
+          { time: "2026-11-25 07:58", bootMs: 51800, mainPathMs: 22100, postBootMs: 29700 },
+          { time: "2026-11-24 08:10", bootMs: 39900, mainPathMs: 19800, postBootMs: 20100 },
+        ],
+        avgMs: 46600,
+        slow: [
+          { kind: "app", name: "Discord", file: "Update.exe", times: 4, avgMs: 5200 },
+          { kind: "app", name: "Armoury Crate", file: "ArmouryCrate.exe", times: 3, avgMs: 7100 },
+          { kind: "service", name: "Serviço de Atualização do Steam", file: "steamservice.exe", times: 2, avgMs: 2400 },
+        ],
+      };
     },
     async listStartup() {
       await delay(200);

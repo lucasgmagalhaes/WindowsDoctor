@@ -87,6 +87,12 @@ fn main() -> ExitCode {
         Err(e) => failures.push(format!("agendamento: {e}")),
     }
 
+    // O runner roda como administrador: o log de boot deve ser legível.
+    match systools::boot::run() {
+        Ok(b) => println!("boots registrados: {} | itens lentos: {}", b.boots.len(), b.slow.len()),
+        Err(e) => println!("boot (não fatal): {e}"),
+    }
+
     match systools::startup::list() {
         Ok(list) => println!("programas na inicialização: {}", list.len()),
         Err(e) => failures.push(format!("inicialização: {e}")),

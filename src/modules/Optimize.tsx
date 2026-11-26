@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { StartupEntry, Tweak } from "../api";
 import type { ToolProps } from "../App";
 import { beforeChange } from "../safety";
+import { BootTime } from "../components/BootTime";
 import { AdminNotice, Loading, Toggle, ToolPage } from "../components/ToolLayout";
 
 /** Estado desejado por otimização em cada perfil. */
@@ -213,6 +214,11 @@ export function Optimize({ api, notify, elevated, onRelaunchAdmin }: ToolProps) 
           </section>
         ))
       )}
+
+      <section className="opt-section">
+        <h2>Tempo de inicialização</h2>
+        <BootTime api={api} elevated={elevated} />
+      </section>
 
       <section className="opt-section">
         <h2>

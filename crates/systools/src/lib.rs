@@ -9,6 +9,7 @@
 //! sistemas as funções devolvem erro ou listas vazias, o que permite compilar
 //! e testar a lógica pura em qualquer lugar.
 
+pub mod boot;
 pub mod ddc;
 pub mod diagnostics;
 pub mod duplicates;

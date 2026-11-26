@@ -270,6 +270,12 @@ export interface ExtStat {
   count: number;
 }
 
+export interface BootReport {
+  boots: { time: string; bootMs: number; mainPathMs: number; postBootMs: number }[];
+  avgMs: number | null;
+  slow: { kind: "app" | "driver" | "service"; name: string; file: string; times: number; avgMs: number }[];
+}
+
 export interface Api {
   isMock: boolean;
   listDrives(): Promise<Drive[]>;
@@ -343,6 +349,8 @@ export interface Api {
   listTweaks(): Promise<Tweak[]>;
   setTweak(id: string, apply: boolean): Promise<Tweak>;
   listStartup(): Promise<StartupEntry[]>;
+  /** Exige administrador. */
+  bootReport(): Promise<BootReport>;
   setStartup(id: string, enabled: boolean): Promise<void>;
 }
 
@@ -434,6 +442,7 @@ async function tauriApi(): Promise<Api> {
     listTweaks: () => invoke("list_tweaks"),
     setTweak: (id, apply) => invoke("set_tweak", { id, apply }),
     listStartup: () => invoke("list_startup"),
+    bootReport: () => invoke("boot_report"),
     setStartup: (id, enabled) => invoke("set_startup", { id, enabled }),
   };
 }
