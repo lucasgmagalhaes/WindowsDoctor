@@ -350,6 +350,13 @@ export function createMockApi(): Api {
     async getPath(id) {
       return need().pathOf(id);
     },
+    async saveScan() {
+      need();
+      return true;
+    },
+    async openScan() {
+      throw new Error("no modo demonstração não há arquivos para abrir");
+    },
     async getExtensions() {
       need();
       const GBx = 1024 ** 3;

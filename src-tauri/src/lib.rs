@@ -227,6 +227,49 @@ fn get_top_files(state: State<'_, Arc<AppState>>, limit: usize) -> CmdResult<Vec
     with_tree(&state, |t| Ok(t.top_files(limit).to_vec()))
 }
 
+fn check_scan_ext(path: &Path) -> CmdResult<()> {
+    match path.extension().map(|e| e.to_string_lossy().to_lowercase()) {
+        Some(e) if e == "wdscan" => Ok(()),
+        _ => Err("use um arquivo .wdscan".into()),
+    }
+}
+
+/// Salva a varredura atual (com as exclusões já feitas) num arquivo .wdscan.
+#[tauri::command]
+async fn save_scan(state: State<'_, Arc<AppState>>, path: String) -> CmdResult<()> {
+    let p = PathBuf::from(&path);
+    check_scan_ext(&p)?;
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        with_tree(&state, |t| {
+            let f = std::fs::File::create(&p).map_err(|e| format!("{path}: {e}"))?;
+            t.save(std::io::BufWriter::new(f)).map_err(|e| format!("{path}: {e}"))
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Abre uma varredura salva no lugar da atual.
+#[tauri::command]
+async fn open_scan(state: State<'_, Arc<AppState>>, path: String) -> CmdResult<ScanStats> {
+    let p = PathBuf::from(&path);
+    check_scan_ext(&p)?;
+    if state.progress.lock().map_err(|e| e.to_string())?.is_some() {
+        return Err("aguarde a varredura em andamento terminar".into());
+    }
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let f = std::fs::File::open(&p).map_err(|e| format!("{path}: {e}"))?;
+        let tree = Tree::load(std::io::BufReader::new(f)).map_err(|e| format!("{path}: {e}"))?;
+        let stats = tree.stats();
+        *state.tree.lock().map_err(|e| e.to_string())? = Some(tree);
+        Ok(stats)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn get_extensions(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<ExtStat>> {
     with_tree(&state, |t| Ok(t.extensions().to_vec()))
@@ -578,6 +621,8 @@ pub fn run() {
             get_top_files,
             find_path,
             get_extensions,
+            save_scan,
+            open_scan,
             reveal_path,
             delete_node,
             tools::is_elevated,

@@ -10,6 +10,7 @@
 //! individuais: são somados em um nó "outros arquivos" por diretório. Isso
 //! mantém o uso de memória baixo em partições com milhões de arquivos.
 
+mod persist;
 mod scan;
 mod tree;
 

@@ -240,6 +240,19 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
         onMinFileSize={setMinFileSize}
         onScan={startScan}
         onPickFolder={pickFolder}
+        onOpenScan={async () => {
+          try {
+            const s = await api.openScan();
+            if (!s) return;
+            setStats(s);
+            setCurrentId(null);
+            setHovered(null);
+            setVersion((v) => v + 1);
+            notify(`Varredura de ${s.root} aberta.`);
+          } catch (e) {
+            notify(String(e), "err");
+          }
+        }}
         onRefreshDrives={() => refreshDrives(api)}
         onCleanup={onOpenCleanup}
       />
@@ -288,6 +301,18 @@ export function DiskMap({ api, notify, active, cleaned, onOpenCleanup }: Props) 
                   </div>
                 )}
               </div>
+              <button
+                className="btn"
+                title="Salva esta varredura num arquivo .wdscan para abrir depois ou comparar"
+                onClick={() =>
+                  api
+                    .saveScan()
+                    .then((ok) => ok && notify("Varredura salva."))
+                    .catch((e) => notify(String(e), "err"))
+                }
+              >
+                Salvar
+              </button>
               <div className="tabs" role="tablist">
                 <button role="tab" aria-selected={tab === "explore"} className={tab === "explore" ? "on" : ""} onClick={() => setTab("explore")}>
                   Explorar

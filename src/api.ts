@@ -275,6 +275,10 @@ export interface Api {
   getTopFiles(limit: number): Promise<FileInfo[]>;
   /** Espaço por extensão na última varredura completa. */
   getExtensions(): Promise<ExtStat[]>;
+  /** Pergunta onde salvar; false se cancelar. */
+  saveScan(): Promise<boolean>;
+  /** Pergunta qual abrir; null se cancelar. */
+  openScan(): Promise<Stats | null>;
   findPath(path: string): Promise<number | null>;
   reveal(path: string, select: boolean): Promise<void>;
   /** Deletes by node `id` or, for grouped files from the top list, by `path`. */
@@ -348,6 +352,19 @@ async function tauriApi(): Promise<Api> {
     getPath: (id) => invoke("get_path", { id }),
     getTopFiles: (limit) => invoke("get_top_files", { limit }),
     getExtensions: () => invoke("get_extensions"),
+    saveScan: async () => {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ defaultPath: "varredura.wdscan", filters: [{ name: "Varredura do WindowsDoctor", extensions: ["wdscan"] }] });
+      if (!path) return false;
+      await invoke("save_scan", { path });
+      return true;
+    },
+    openScan: async () => {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const path = await open({ multiple: false, filters: [{ name: "Varredura do WindowsDoctor", extensions: ["wdscan"] }] });
+      if (typeof path !== "string") return null;
+      return invoke("open_scan", { path });
+    },
     findPath: (path) => invoke("find_path", { path }),
     reveal: (path, select) => invoke("reveal_path", { path, select }),
     deleteNode: (target, permanent) =>

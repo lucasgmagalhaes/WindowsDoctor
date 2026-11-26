@@ -19,16 +19,16 @@ pub enum NodeKind {
 }
 
 #[derive(Debug)]
-struct Node {
-    name: Box<str>,
-    parent: u32,
-    size: u64,
-    file_count: u64,
-    dir_count: u64,
-    kind: NodeKind,
-    children: Vec<u32>,
-    error: bool,
-    removed: bool,
+pub(crate) struct Node {
+    pub(crate) name: Box<str>,
+    pub(crate) parent: u32,
+    pub(crate) size: u64,
+    pub(crate) file_count: u64,
+    pub(crate) dir_count: u64,
+    pub(crate) kind: NodeKind,
+    pub(crate) children: Vec<u32>,
+    pub(crate) error: bool,
+    pub(crate) removed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -88,18 +88,19 @@ pub struct Crumb {
 /// Árvore de uso de disco resultante de uma varredura.
 #[derive(Debug)]
 pub struct Tree {
-    root_path: PathBuf,
-    nodes: Vec<Node>,
-    top_files: Vec<FileInfo>,
-    top_limit: usize,
-    errors: u64,
-    cancelled: bool,
-    elapsed_ms: u64,
+    pub(crate) root_path: PathBuf,
+    pub(crate) nodes: Vec<Node>,
+    pub(crate) top_files: Vec<FileInfo>,
+    pub(crate) top_limit: usize,
+    pub(crate) errors: u64,
+    pub(crate) cancelled: bool,
+    pub(crate) elapsed_ms: u64,
     /// Da varredura completa; não acompanha exclusões nem re-análises.
-    extensions: Vec<ExtStat>,
+    pub(crate) extensions: Vec<ExtStat>,
 }
 
 impl Tree {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_raw(
         root_path: PathBuf,
         raw: RawDir,
